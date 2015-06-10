@@ -1009,7 +1009,7 @@ class Installer(object):
             if cloning_hg_repository:
                 self.installer._exec(
                     "hg", "revert", "--all", "--no-backup",
-                    "-R", self.project_dir
+                    "-R", self.project_outer_dir
                 )
 
         def install_website(self):
