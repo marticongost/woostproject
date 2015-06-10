@@ -249,6 +249,7 @@ class Installer(object):
             "mercurial",
             "build-essential",
             "python-dev",
+            "python-pip",
             "python-setuptools",
             "python-imaging",
             "libxml2-dev",
