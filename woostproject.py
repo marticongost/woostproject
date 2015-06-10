@@ -466,6 +466,9 @@ class Installer(object):
 
         first_commit_message = u"Created the project."
 
+        def _python(self, command):
+            self.installer._exec(self.python_bin, "-c", command)
+
         def setup_cli(self, parser):
 
             parser.add_argument("website",
