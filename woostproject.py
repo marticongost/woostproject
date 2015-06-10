@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import socket
 from tempfile import mkdtemp
+from contextlib import contextmanager
 from PIL import Image
 
 try:
@@ -292,10 +293,8 @@ class Installer(object):
 
     class InstallCommand(Command):
 
-        name = "new"
-        help = "Create a new Woost website."
-
         website = None
+        source_installation = None
         installation_id = None
         alias = None
         package = None
@@ -584,45 +583,6 @@ class Installer(object):
                 default = self.zeo_port
             )
 
-            parser.add_argument("--language", "-l",
-                help = """
-                    The list of languages for the website. Languages should be
-                    indicated using two letter ISO codes.
-                    """,
-                dest = "languages",
-                metavar = "LANG_ISO_CODE",
-                nargs = "+",
-                default = self.languages
-            )
-
-            parser.add_argument("--admin-email",
-                help = "The e-mail for the administrator account.",
-                default = self.admin_email
-            )
-
-            parser.add_argument("--admin-password",
-                help = "The password for the administrator account.",
-                default = self.admin_password
-            )
-
-            parser.add_argument("--extension", "-e",
-                help = """The list of extensions to enable.""",
-                dest = "extensions",
-                metavar = "EXT_NAME",
-                nargs = "+",
-                default = self.extensions
-            )
-
-            parser.add_argument("--base-id",
-                help = """
-                    If set, the incremental ID of objects created by the
-                    installer will start at the given value. Useful to prevent
-                    collisions with old identifiers when importing data from an
-                    existing website.
-                    """,
-                default = self.base_id
-            )
-
             parser.add_argument("--launcher",
                 help = """
                     Indicates if the installer should create a desktop launcher
@@ -663,7 +623,8 @@ class Installer(object):
             self.install_libs()
             self.create_project_skeleton()
             self.install_website()
-            self.init_database()
+            self.setup_database()
+            self.copy_uploads()
             self.configure_apache()
             self.add_hostname_to_hosts_file()
             self.create_mercurial_repository()
@@ -786,7 +747,7 @@ class Installer(object):
             )
             self.apache_version = self.installer.get_package_version("apache2")
 
-            if self.apache_version[:2] == (2, 4):
+            if self.apache_version[:2] == ("2", "4"):
                 self.apache_vhost_template = self.apache_2_4_vhost_template
                 self.apache_vhost_file += ".conf"
             else:
@@ -960,6 +921,24 @@ class Installer(object):
 
             self.installer.heading("Creating the project skeleton")
 
+            # Copy source code from an existing installation using mercurial
+            cloning_hg_repository = (
+                self.source_installation
+                and os.path.exists(
+                    os.path.join(self.source_installation, ".hg")
+                )
+            )
+
+            if (
+                cloning_hg_repository
+                and not os.path.exists(
+                    os.path.join(self.project_outer_dir, ".hg")
+                )
+            ):
+                self.installer._exec(
+                    "hg", "clone", self.source_installation, self.project_outer_dir
+                )
+
             # Create the package structure
             if not os.path.exists(self.project_outer_dir):
                 os.mkdir(self.project_outer_dir)
@@ -1025,12 +1004,46 @@ class Installer(object):
                 setup_source = self.process_template(self.setup_template)
                 f.write(setup_source)
 
+            # Discard generated files that are managed with version control
+            if cloning_hg_repository:
+                self.installer._exec(
+                    "hg", "revert", "--all", "--no-backup",
+                    "-R", self.project_dir
+                )
+
         def install_website(self):
             self.installer.heading("Configuring the website's Python package")
             self.setup_python_package(self.project_outer_dir)
 
-        def init_database(self):
-            self.installer.heading("Initializing the database")
+        def setup_database(self):
+            if self.source_installation:
+                self.copy_database()
+            else:
+                self.init_database()
+
+        def copy_database(self):
+            self.installer.heading("Copying database")
+            shutil.copy(
+                os.path.join(
+                    self.source_installation,
+                    self.package,
+                    "data",
+                    "database.fs"
+                ),
+                os.path.join(self.project_dir, "data", "database.fs"),
+            )
+
+            # Change the hostname
+            with self.zeo_process():
+                self._python(
+                    "'from %s.scripts.shell import config, datastore; "
+                    "config.websites[0].hosts[0] = \"%s\"; "
+                    "datastore.commit()'"
+                    % (self.package, self.hostname)
+                )
+
+        @contextmanager
+        def zeo_process(self):
             zeo_proc = subprocess.Popen([
                 self.python_bin,
                 os.path.join(self.virtual_env_dir, "bin", "runzeo"),
@@ -1040,6 +1053,14 @@ class Installer(object):
                 "127.0.0.1:%d" % self.zeo_port
             ])
             try:
+                yield zeo_proc
+            finally:
+                zeo_proc.kill()
+
+        def init_database(self):
+            self.installer.heading("Initializing the database")
+
+            with self.zeo_process():
                 init_command = [
                     self.python_bin,
                     os.path.join(self.project_dir, "scripts", "initsite.py")
@@ -1071,8 +1092,27 @@ class Installer(object):
                     init_command.extend(["--base-id", str(self.base_id)])
 
                 self.installer._exec(*init_command)
-            finally:
-                zeo_proc.kill()
+
+        def copy_uploads(self):
+            if self.source_installation:
+                self.installer.heading("Copying uploads")
+                source_folder = os.path.join(
+                    self.source_installation,
+                    self.package,
+                    "upload"
+                )
+                dest_folder = os.path.join(self.project_dir, "upload")
+                for file_name in os.listdir(source_folder):
+                    item = os.path.join(source_folder, file_name)
+                    if os.path.isfile(item):
+                        shutil.copy(item, dest_folder)
+
+                # Create links for static publication
+                self._python(
+                    "'from %s.scripts.shell import File, statipublication; "
+                    "for f in File.select(): staticpublication.create_links(f)'"
+                    % self.package
+                )
 
         def configure_apache(self):
 
@@ -1259,6 +1299,72 @@ class Installer(object):
                         self.alias + ".png"
                     )
                 )
+
+    class NewCommand(InstallCommand):
+
+        name = "new"
+        help = "Create a new Woost website."
+
+        def setup_cli(self, parser):
+
+            Installer.InstallCommand.setup_cli(self, parser)
+
+            parser.add_argument("--language", "-l",
+                help = """
+                    The list of languages for the website. Languages should be
+                    indicated using two letter ISO codes.
+                    """,
+                dest = "languages",
+                metavar = "LANG_ISO_CODE",
+                nargs = "+",
+                default = self.languages
+            )
+
+            parser.add_argument("--admin-email",
+                help = "The e-mail for the administrator account.",
+                default = self.admin_email
+            )
+
+            parser.add_argument("--admin-password",
+                help = "The password for the administrator account.",
+                default = self.admin_password
+            )
+
+            parser.add_argument("--extension", "-e",
+                help = """The list of extensions to enable.""",
+                dest = "extensions",
+                metavar = "EXT_NAME",
+                nargs = "+",
+                default = self.extensions
+            )
+
+            parser.add_argument("--base-id",
+                help = """
+                    If set, the incremental ID of objects created by the
+                    installer will start at the given value. Useful to prevent
+                    collisions with old identifiers when importing data from an
+                    existing website.
+                    """,
+                default = self.base_id
+            )
+
+
+    class CopyCommand(InstallCommand):
+
+        name = "copy"
+        help = "Create a new installation of an existing project."
+
+        def setup_cli(self, parser):
+
+            Installer.InstallCommand.setup_cli(self, parser)
+
+            parser.add_argument("source_installation",
+                help = """
+                    Path to an existing installation of the project that should
+                    be used to obtain the database, uploads and source code for
+                    the project.
+                    """
+            )
 
 
 class ProjectSkeleton(object):
