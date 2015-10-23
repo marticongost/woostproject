@@ -17,7 +17,7 @@ from contextlib import contextmanager
 try:
     import gconf
 except:
-    pass
+    gconf = None
 
 
 class Installer(object):
