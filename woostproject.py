@@ -13,7 +13,6 @@ import subprocess
 import socket
 from tempfile import mkdtemp
 from contextlib import contextmanager
-from PIL import Image
 
 try:
     import gconf
@@ -1214,6 +1213,8 @@ class Installer(object):
             self.installer._sudo_write(hosts_file, "".join(lines))
 
         def create_launcher(self):
+
+            from PIL import Image
 
             if self.launcher == "no":
                 return
