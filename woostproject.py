@@ -300,7 +300,7 @@ class Installer(object):
         package = None
         vhost_name = None
         workspace = None
-        woost_version = "kungfu"
+        woost_version = "lemmings"
         hostname = None
         deployment_scheme = "mod_rewrite"
         modify_hosts_file = False
@@ -315,7 +315,11 @@ class Installer(object):
         recreate_env = False
         mercurial = True
         python_version = "2.7"
-        cocktail_versions = {"joust": "gin", "kungfu": "horilka"}
+        cocktail_versions = {
+            "joust": "gin",
+            "kungfu": "horilka",
+            "lemmings": "izarra"
+        }
         linked_system_packages = ["PIL", "PILcompat"]
         cocktail_repository = "https://bitbucket.org/whads/cocktail"
         woost_repository = "https://bitbucket.org/whads/woost"
@@ -518,7 +522,11 @@ class Installer(object):
                 help = """
                     The version of Woost that the weebsite will be based on.
                     """,
-                choices = ["joust", "kungfu"],
+                choices = [
+                    "joust",
+                    "kungfu",
+                    "lemmings"
+                ],
                 default = self.woost_version
             )
 
