@@ -1034,9 +1034,10 @@ class Installer(object):
             shutil.copy(
                 os.path.join(
                     self.source_installation,
-                    self.package,
-                    "data",
-                    "database.fs"
+                    *(
+                        self.package.split(".")
+                        + ["data", "database.fs"]
+                    )
                 ),
                 os.path.join(self.project_dir, "data", "database.fs"),
             )
@@ -1106,8 +1107,10 @@ class Installer(object):
                 self.installer.heading("Copying uploads")
                 source_folder = os.path.join(
                     self.source_installation,
-                    self.package,
-                    "upload"
+                    *(
+                        self.package.split(".")
+                        + ["upload"]
+                    )
                 )
                 dest_folder = os.path.join(self.project_dir, "upload")
                 for file_name in os.listdir(source_folder):
