@@ -293,6 +293,20 @@ class Installer(object):
 
     class InstallCommand(Command):
 
+        steps = [
+            "init_config",
+            "create_virtual_environment",
+            "install_libs",
+            "create_project_skeleton",
+            "install_website",
+            "setup_database",
+            "copy_uploads",
+            "configure_apache",
+            "add_hostname_to_hosts_file",
+            "create_mercurial_repository",
+            "create_launcher"
+        ]
+
         website = None
         source_installation = None
         installation_id = None
@@ -626,17 +640,26 @@ class Installer(object):
             )
 
         def __call__(self):
-            self.init_config()
-            self.create_virtual_environment()
-            self.install_libs()
-            self.create_project_skeleton()
-            self.install_website()
-            self.setup_database()
-            self.copy_uploads()
-            self.configure_apache()
-            self.add_hostname_to_hosts_file()
-            self.create_mercurial_repository()
-            self.create_launcher()
+            for step in self.steps:
+                getattr(self, step)()
+
+        def add_step(self, step, after = None, before = None):
+
+            if not after and not before:
+                raise ValueError("Must specify a position for step %r" % step)
+
+            if after and before:
+                raise ValueError(
+                    "Can't specify both 'after' and 'before' when adding a "
+                    "step"
+                )
+
+            if after:
+                pos = self.steps.index(after)
+                self.steps.insert(pos + 1, step)
+            else:
+                pos = self.steps.index(before)
+                self.steps.insert(pos, step)
 
         def init_config(self):
 
