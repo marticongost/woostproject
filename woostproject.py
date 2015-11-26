@@ -878,7 +878,7 @@ class Installer(object):
                     "bin",
                     "easy_install"
                 ),
-                "ipython"
+                "ipython==4.0.0"
             )
 
             # Link system packages into the virtual environment
