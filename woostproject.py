@@ -673,7 +673,10 @@ class Installer(object):
                 self.workspace = os.environ["WORKSPACE"]
 
             if self.installation_id is None:
-                self.installation_id = socket.gethostname()
+                self.installation_id = (
+                    os.environ.get("WOOST_INSTALLATION_ID")
+                    or socket.gethostname()
+                )
 
             if not self.package:
                 self.package = self.website.lower()
