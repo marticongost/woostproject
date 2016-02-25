@@ -314,7 +314,14 @@ class Installer(object):
         package = None
         vhost_name = None
         workspace = None
-        woost_version = "lemmings"
+        woost_releases = {
+            "joust": (2, 5),
+            "kungfu": (2, 6),
+            "lemmings": (2, 7),
+            "metroid": (2, 8)
+        }
+        woost_version = "metroid"
+        woost_version_specifier = None
         hostname = None
         deployment_scheme = "mod_rewrite"
         modify_hosts_file = False
@@ -332,7 +339,8 @@ class Installer(object):
         cocktail_versions = {
             "joust": "gin",
             "kungfu": "horilka",
-            "lemmings": "izarra"
+            "lemmings": "izarra",
+            "metroid": "izarra"
         }
         linked_system_packages = ["PIL", "PILcompat"]
         cocktail_repository = "https://bitbucket.org/whads/cocktail"
@@ -374,7 +382,7 @@ class Installer(object):
             setup(
                 name = "--SETUP-WEBSITE--",
                 install_requires = [
-                    "woost==--SETUP-WOOST_VERSION--"
+                    "woost--SETUP-WOOST_VERSION_SPECIFIER--"
                 ],
                 packages = find_packages(),
                 include_package_data = True,
@@ -539,7 +547,8 @@ class Installer(object):
                 choices = [
                     "joust",
                     "kungfu",
-                    "lemmings"
+                    "lemmings",
+                    "metroid"
                 ],
                 default = self.woost_version
             )
@@ -662,6 +671,14 @@ class Installer(object):
                 self.steps.insert(pos, step)
 
         def init_config(self):
+
+            if not self.woost_version_specifier:
+                release = self.woost_releases[self.woost_version]
+                next_release = (release[0], release[1] + 1)
+                self.woost_version_specifier = ">=%s,<%s" % (
+                    ("%d.%d" % release),
+                    ("%d.%d" % next_release)
+                )
 
             if not self.alias:
                 self.alias = self.website
