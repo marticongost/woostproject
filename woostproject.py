@@ -318,7 +318,8 @@ class Installer(object):
             "joust": (2, 5),
             "kungfu": (2, 6),
             "lemmings": (2, 7),
-            "metroid": (2, 8)
+            "metroid": (2, 8),
+            "nethack": (2, 9)
         }
         woost_version = "metroid"
         woost_version_specifier = None
@@ -340,7 +341,8 @@ class Installer(object):
             "joust": "gin",
             "kungfu": "horilka",
             "lemmings": "izarra",
-            "metroid": "izarra"
+            "metroid": "izarra",
+            "nethack": "jagermeister"
         }
         linked_system_packages = ["PIL", "PILcompat"]
         cocktail_repository = "https://bitbucket.org/whads/cocktail"
@@ -548,7 +550,8 @@ class Installer(object):
                     "joust",
                     "kungfu",
                     "lemmings",
-                    "metroid"
+                    "metroid",
+                    "nethack"
                 ],
                 default = self.woost_version
             )
