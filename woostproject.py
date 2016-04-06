@@ -794,6 +794,9 @@ class Installer(object):
             if not self.static_dir:
                 self.static_dir = os.path.join(self.project_dir, "static")
 
+            if self.woost_version >= "nethack":
+                self.empty_project_folders.append(["static", "resources"])
+
             # Apache configuration
             self.apache_vhost_file = (
                 "/etc/apache2/sites-available/"
@@ -1035,23 +1038,42 @@ class Installer(object):
                         os.chmod(script, 0774)
 
             # Create symbolic links to publish resource folders statically
-            for link_name, source_dir in (
-                (
-                    "cocktail",
-                    os.path.join(self.cocktail_dir, "html", "resources")
-                ),
-                (
-                    "resources",
-                    os.path.join(self.woost_dir, "views", "resources")
-                ),
-                (
-                    self.flat_website_name + "_resources",
-                    os.path.join(self.project_dir, "views", "resources")
-                )
-            ):
-                target = os.path.join(self.static_dir, link_name)
-                if not os.path.exists(target):
-                    os.symlink(source_dir, target)
+            if self.woost_version >= "nethack":
+                for link_name, source_dir in (
+                    (
+                        "cocktail",
+                        os.path.join(self.cocktail_dir, "html", "resources")
+                    ),
+                    (
+                        "woost",
+                        os.path.join(self.woost_dir, "views", "resources")
+                    ),
+                    (
+                        self.flat_website_name,
+                        os.path.join(self.project_dir, "views", "resources")
+                    )
+                ):
+                    target = os.path.join(self.static_dir, "resources", link_name)
+                    if not os.path.exists(target):
+                        os.symlink(source_dir, target)
+            else:
+                for link_name, source_dir in (
+                    (
+                        "cocktail",
+                        os.path.join(self.cocktail_dir, "html", "resources")
+                    ),
+                    (
+                        "resources",
+                        os.path.join(self.woost_dir, "views", "resources")
+                    ),
+                    (
+                        self.flat_website_name + "_resources",
+                        os.path.join(self.project_dir, "views", "resources")
+                    )
+                ):
+                    target = os.path.join(self.static_dir, link_name)
+                    if not os.path.exists(target):
+                        os.symlink(source_dir, target)
 
             # Write the setup file for the package
             with open(os.path.join(self.project_outer_dir, "setup.py"), "w") as f:
