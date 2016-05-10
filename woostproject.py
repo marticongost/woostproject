@@ -342,7 +342,7 @@ class Installer(object):
             "kungfu": "horilka",
             "lemmings": "izarra",
             "metroid": "izarra",
-            "nethack": "jagermeister"
+            "nethack": "komovica"
         }
         linked_system_packages = ["PIL", "PILcompat"]
         cocktail_repository = "https://bitbucket.org/whads/cocktail"
