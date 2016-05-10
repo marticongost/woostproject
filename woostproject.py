@@ -548,13 +548,7 @@ class Installer(object):
                 help = """
                     The version of Woost that the weebsite will be based on.
                     """,
-                choices = [
-                    "joust",
-                    "kungfu",
-                    "lemmings",
-                    "metroid",
-                    "nethack"
-                ],
+                choices = sorted(self.woost_releases),
                 default = self.woost_version
             )
 
