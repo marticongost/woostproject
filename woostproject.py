@@ -319,7 +319,8 @@ class Installer(object):
             "kungfu": (2, 6),
             "lemmings": (2, 7),
             "metroid": (2, 8),
-            "nethack": (2, 9)
+            "nethack": (2, 9),
+            "outrun": (2, 10)
         }
         woost_version = "nethack"
         woost_version_specifier = None
@@ -342,7 +343,8 @@ class Installer(object):
             "kungfu": "horilka",
             "lemmings": "izarra",
             "metroid": "izarra",
-            "nethack": "komovica"
+            "nethack": "komovica",
+            "outrun": "komovica"
         }
         linked_system_packages = ["PIL", "PILcompat"]
         cocktail_repository = "https://bitbucket.org/whads/cocktail"
