@@ -321,7 +321,7 @@ class Installer(object):
             "metroid": (2, 8),
             "nethack": (2, 9)
         }
-        woost_version = "metroid"
+        woost_version = "nethack"
         woost_version_specifier = None
         hostname = None
         deployment_scheme = "mod_rewrite"
