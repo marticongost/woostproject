@@ -413,12 +413,12 @@ class Installer(object):
 
                 RewriteRule ^/$ http://--SETUP-APP_SERVER_HOST--/ [P]
 
-                RewriteCond %%{QUERY_STRING} ^(.+)$
+                RewriteCond %{QUERY_STRING} ^(.+)$
                 RewriteRule ^(.*)$ http://--SETUP-APP_SERVER_HOST--$1 [P]
 
-                RewriteCond %%{DOCUMENT_ROOT}/$1 !-f
-                RewriteCond %%{DOCUMENT_ROOT}/$1 !-d
-                RewriteCond %%{DOCUMENT_ROOT}/$1 !-s
+                RewriteCond %{DOCUMENT_ROOT}/$1 !-f
+                RewriteCond %{DOCUMENT_ROOT}/$1 !-d
+                RewriteCond %{DOCUMENT_ROOT}/$1 !-s
                 RewriteRule ^(.*)$ http://--SETUP-APP_SERVER_HOST--$1 [P]
 
                 <Location />
