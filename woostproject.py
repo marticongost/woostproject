@@ -416,6 +416,9 @@ class Installer(object):
                 RewriteCond %{QUERY_STRING} ^(.+)$
                 RewriteRule ^(.*)$ http://--SETUP-APP_SERVER_HOST--$1 [P]
 
+                # Always serve CSS source and maps generated from SASS files dynamically
+                RewriteRule ^(.*\.scss\.(css|map))$ http://--SETUP-APP_SERVER_HOST--$1 [P]
+
                 RewriteCond %{DOCUMENT_ROOT}/$1 !-f
                 RewriteCond %{DOCUMENT_ROOT}/$1 !-d
                 RewriteCond %{DOCUMENT_ROOT}/$1 !-s
@@ -441,6 +444,9 @@ class Installer(object):
 
                 RewriteCond %{QUERY_STRING} ^(.+)$
                 RewriteRule ^(.*)$ http://--SETUP-APP_SERVER_HOST--$1 [P]
+
+                # Always serve CSS source and maps generated from SASS files dynamically
+                RewriteRule ^(.*\.scss\.(css|map))$ http://--SETUP-APP_SERVER_HOST--$1 [P]
 
                 RewriteCond %{DOCUMENT_ROOT}$1 !-f
                 RewriteCond %{DOCUMENT_ROOT}$1 !-d
