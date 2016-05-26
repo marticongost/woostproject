@@ -899,6 +899,30 @@ class Installer(object):
             # Create the new virtual environment
             create_environment(self.virtual_env_dir)
 
+            # Upgrade setuptools
+            self.installer._exec(
+                os.path.join(
+                    self.virtual_env_dir,
+                    "bin",
+                    "pip"
+                ),
+                "install",
+                "--upgrade",
+                "setuptools"
+            )
+
+            # Upgrade pip
+            self.installer._exec(
+                os.path.join(
+                    self.virtual_env_dir,
+                    "bin",
+                    "pip"
+                ),
+                "install",
+                "--upgrade",
+                "pip"
+            )
+
             # Install ipython
             self.installer._exec(
                 os.path.join(
