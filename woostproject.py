@@ -904,8 +904,9 @@ class Installer(object):
                 os.path.join(
                     self.virtual_env_dir,
                     "bin",
-                    "easy_install"
+                    "pip"
                 ),
+                "install",
                 "ipython==4.0.0"
             )
 
