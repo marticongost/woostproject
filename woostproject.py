@@ -322,7 +322,7 @@ class Installer(object):
             "nethack": (2, 9),
             "outrun": (2, 10)
         }
-        woost_version = "nethack"
+        woost_version = "outrun"
         woost_version_specifier = None
         hostname = None
         deployment_scheme = "mod_rewrite"
@@ -344,7 +344,8 @@ class Installer(object):
             "lemmings": "izarra",
             "metroid": "izarra",
             "nethack": "komovica",
-            "outrun": "komovica"
+            "outrun": "komovica",
+            "pacman": "lambanog"
         }
         linked_system_packages = ["PIL", "PILcompat"]
         cocktail_repository = "https://bitbucket.org/whads/cocktail"
