@@ -320,7 +320,8 @@ class Installer(object):
             "lemmings": (2, 7),
             "metroid": (2, 8),
             "nethack": (2, 9),
-            "outrun": (2, 10)
+            "outrun": (2, 10),
+            "pacman": (2, 11)
         }
         woost_version = "outrun"
         woost_version_specifier = None
