@@ -1388,16 +1388,6 @@ class Installer(object):
 
             # Launcher icon
             for icon_path in self.launcher_icons:
-                print icon_path, os.path.join(
-                        os.path.expanduser("~"),
-                        ".local",
-                        "share",
-                        "icons",
-                        "hicolor",
-                        "%dx%d" % Image.open(icon_path).size,
-                        "apps",
-                        self.alias + ".png"
-                    )
                 shutil.copy(
                     icon_path,
                     os.path.join(
