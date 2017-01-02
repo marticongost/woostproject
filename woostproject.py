@@ -11,13 +11,10 @@ import re
 import shutil
 import subprocess
 import socket
+import uuid
+import json
 from tempfile import mkdtemp
 from contextlib import contextmanager
-
-try:
-    import gconf
-except:
-    gconf = None
 
 
 class Installer(object):
@@ -365,6 +362,7 @@ class Installer(object):
         project_dir = None
         project_scripts_dir = None
         static_dir = None
+        launcher_dir = None
         python_bin = None
         empty_project_folders = [
             ["data"],
@@ -468,25 +466,100 @@ class Installer(object):
         terminal_source_profile = "Default"
         terminal_profile_settings = {}
 
-        terminal_script = None
-        terminal_script_template = r"""
+        launcher_script = None
+        launcher_tab_script = None
+
+        launcher_tabs = [
+            (
+                "zeo",
+                """
+                #!/bin/bash
+                export TAB_TITLE=ZEO
+                export TAB_COMMAND='./rundb.sh'
+                cd --SETUP-PROJECT_SCRIPTS_DIR--
+                bash --init-file --SETUP-LAUNCHER_TAB_SCRIPT--
+                """
+            ),
+            (
+                "http",
+                """
+                #!/bin/bash
+                export TAB_TITLE=HTTP
+                export TAB_COMMAND='python run.py'
+                cd --SETUP-PROJECT_SCRIPTS_DIR--
+                bash --init-file --SETUP-LAUNCHER_TAB_SCRIPT--
+                """
+            ),
+            (
+                "cocktail",
+                """
+                #!/bin/bash
+                export TAB_TITLE=Cocktail
+                cd --SETUP-COCKTAIL_DIR--
+                bash --init-file --SETUP-LAUNCHER_TAB_SCRIPT--
+                """
+            ),
+            (
+                "woost",
+                """
+                #!/bin/bash
+                export TAB_TITLE=Woost
+                cd --SETUP-WOOST_DIR--
+                bash --init-file --SETUP-LAUNCHER_TAB_SCRIPT--
+                """
+            ),
+            (
+                "site",
+                """
+                #!/bin/bash
+                export TAB_TITLE=Site
+                cd --SETUP-PROJECT_DIR--
+                bash --init-file --SETUP-LAUNCHER_TAB_SCRIPT--
+                """
+            ),
+            (
+                "ipython",
+                """
+                #!/bin/bash
+                export TAB_TITLE=IPython
+                export TAB_COMMAND='site-shell'
+                cd --SETUP-PROJECT_SCRIPTS_DIR--
+                bash --init-file --SETUP-LAUNCHER_TAB_SCRIPT--
+                """
+            )
+        ]
+
+        launcher_template = r"""
             #!/bin/bash
-            SITE_SCRIPTS=--SETUP-PROJECT_SCRIPTS_DIR--
-            PROJECT_ENV=--SETUP-PROJECT_ENV_SCRIPT--
-            source $PROJECT_ENV
+            LAUNCHER=--SETUP-VIRTUAL_ENV_DIR--/launcher
             /usr/bin/gnome-terminal \
                 --sm-client-disable --disable-factory --class --SETUP-ALIAS-- \
-                --profile --SETUP-TERMINAL_PROFILE-- \
-                --tab -t ZEO --working-directory $SITE_SCRIPTS \
-                --command="/bin/bash -c 'source $PROJECT_ENV; ./rundb.sh; /bin/bash --init-file $PROJECT_ENV'" \
-                --tab -t HTTP --working-directory $SITE_SCRIPTS \
-                --command="/bin/bash -c 'source $PROJECT_ENV; ./run.py; /bin/bash --init-file $PROJECT_ENV'" \
-                --tab -t Cocktail --working-directory $COCKTAIL \
-                --tab -t Woost --working-directory $WOOST \
-                --tab -t --SETUP-ALIAS-- --working-directory $SITE \
-                --tab -t Shell --working-directory $SITE_SCRIPTS \
-                --command="/bin/bash -c 'source $PROJECT_ENV; ipython -i shell.py; /bin/bash --init-file $PROJECT_ENV'" \
+                --SETUP-LAUNCHER_TERMINAL_TAB_PARAMETERS--
             """
+
+        launcher_tab_template = r"""
+            source ~/.bashrc
+            source --SETUP-VIRTUAL_ENV_DIR--/bin/activate
+            export COCKTAIL=--SETUP-COCKTAIL_DIR--
+            export WOOST=--SETUP-WOOST_DIR--
+            export SITE=--SETUP-PROJECT_DIR--
+            alias "site-shell=ipython --no-term-title -i --SETUP-PROJECT_SCRIPTS_DIR--/shell.py"
+
+            function site-tab-title {
+                xtitle "--SETUP-ALIAS--: $1"
+            }
+
+            if [[ -n "$TAB_TITLE" ]]; then
+                site-tab-title $TAB_TITLE
+            else
+                xtitle --SETUP-ALIAS--
+            fi
+
+            if [[ -n "$TAB_COMMAND" ]]; then
+                eval $TAB_COMMAND
+            fi
+        """
+
         launcher_icons = ()
 
         desktop_file = None
@@ -495,7 +568,7 @@ class Installer(object):
             [Desktop Entry]
             Version=1.0
             Name=--SETUP-ALIAS--
-            Exec=--SETUP-TERMINAL_SCRIPT--
+            Exec=--SETUP-LAUNCHER_SCRIPT--
             Icon=--SETUP-ALIAS--
             Terminal=false
             Type=Application
@@ -820,17 +893,25 @@ class Installer(object):
             if not self.terminal_profile:
                 self.terminal_profile = self.alias
 
-            if not self.terminal_script:
-                self.terminal_script = os.path.join(
+            if not self.launcher_script:
+                self.launcher_script = os.path.join(
                     self.root_dir,
-                    "project-terminal"
+                    "launcher",
+                    "launch"
+                )
+
+            if not self.launcher_tab_script:
+                self.launcher_tab_script = os.path.join(
+                    self.root_dir,
+                    "launcher",
+                    "tab"
                 )
 
             self.terminal_profile_settings = \
                 self.terminal_profile_settings.copy()
 
             self.terminal_profile_settings.setdefault(
-                "visible_name",
+                "visible-name",
                 self.alias
             )
             self.terminal_profile_settings.setdefault(
@@ -838,17 +919,31 @@ class Installer(object):
                 self.alias
             )
             self.terminal_profile_settings.setdefault(
-                "title_mode",
+                "title-mode",
                 "ignore"
             )
             self.terminal_profile_settings.setdefault(
-                "use_custom_command",
+                "use-custom-command",
                 True
             )
             self.terminal_profile_settings.setdefault(
-                "custom_command",
-                "/bin/bash --init-file " + self.project_env_script
+                "custom-command",
+                "/bin/bash --init-file " + self.launcher_tab_script
             )
+
+            self.launcher_terminal_tab_parameters = u"\\\n\t".join(
+                (
+                    '--tab --profile %s --command="$LAUNCHER/tab-%s"'
+                    % (self.terminal_profile, key)
+                )
+                for key, cmd in self.launcher_tabs
+            )
+
+            if not self.launcher_dir:
+                self.launcher_dir = os.path.join(
+                    self.virtual_env_dir,
+                    "launcher"
+                )
 
             if not self.desktop_file:
                 self.desktop_file = os.path.join(
@@ -1329,11 +1424,10 @@ class Installer(object):
             if self.launcher == "no":
                 return
 
-            if gconf is None:
+            if not os.path.exists("/usr/bin/gsettings"):
                 if self.launcher == "yes":
                     raise OSError(
-                        "Can't install a desktop launcher without the "
-                        "'gconf' python package"
+                        "Can't install a desktop launcher without gsettings"
                     )
                 else:
                     return
@@ -1350,36 +1444,97 @@ class Installer(object):
             self.installer.heading("Creating the project's desktop launcher")
 
             # Create a terminal profile
-            c = gconf.client_get_default()
-            root = "/apps/gnome-terminal/profiles/"
+            profile_path = (
+                "org.gnome.Terminal.Legacy.Profile:"
+                "/org/gnome/terminal/legacy/profiles:/:%s/"
+            )
 
-            for entry in c.all_entries(root + self.terminal_source_profile):
-                k = entry.key.split("/")[-1]
-                v = entry.value
+            # Index terminal profiles by their title
+            profile_list = []
+            profile_uuid_map = {}
+            profile_list_str = subprocess.check_output([
+                "/usr/bin/gsettings",
+                "get",
+                "org.gnome.Terminal.ProfilesList",
+                "list"
+            ])
 
-                custom_value = self.terminal_profile_settings.get(k)
+            for chunk in profile_list_str.strip()[1:-1].split(","):
+                profile_uuid = chunk.strip().strip("'")
+                profile_list.append(profile_uuid)
+                profile_name = subprocess.check_output([
+                    "/usr/bin/gsettings",
+                    "get",
+                    profile_path % profile_uuid,
+                    "visible-name"
+                ])[1:-2]
+                profile_uuid_map[profile_name] = profile_uuid
 
-                if custom_value is not None:
-                    if isinstance(custom_value, basestring):
-                        v = gconf.Value(gconf.VALUE_STRING)
-                        v.set_string(custom_value)
-                    elif isinstance(custom_value, bool):
-                        v = gconf.Value(gconf.VALUE_BOOL)
-                        v.set_bool(custom_value)
+            # Look for an existing profile
+            try:
+                profile_uuid = profile_uuid_map[self.alias]
+            # Or create a new one
+            except KeyError:
+                profile_uuid = str(uuid.uuid4())
+                profile_list.append(profile_uuid)
+                subprocess.check_call([
+                    "/usr/bin/gsettings",
+                    "set",
+                    "org.gnome.Terminal.ProfilesList",
+                    "list",
+                    "[%s]" % ", ".join(
+                        "'%s'" % u
+                        for u in profile_list
+                    )
+                ])
 
-                c.set(root + self.terminal_profile + "/" + k, v)
+            # Profile settings
+            source_profile_uuid = profile_uuid_map[self.terminal_source_profile]
+            source_profile_keys = subprocess.check_output([
+                "/usr/bin/gsettings",
+                "list-keys",
+                profile_path % source_profile_uuid
+            ]).split()
 
-            profiles_key = "/apps/gnome-terminal/global/profile_list"
-            profiles = c.get_list(profiles_key, "string")
+            for key in source_profile_keys:
+                custom_value = self.terminal_profile_settings.get(key)
+                if custom_value:
+                    value = json.dumps(custom_value)
+                else:
+                    value = subprocess.check_output([
+                        "/usr/bin/gsettings",
+                        "get",
+                        profile_path % source_profile_uuid,
+                        key
+                    ])
+                subprocess.check_call([
+                    "/usr/bin/gsettings",
+                    "set",
+                    profile_path % profile_uuid,
+                    key,
+                    value
+                ])
 
-            if self.terminal_profile not in profiles:
-                profiles.append(self.terminal_profile)
-                c.set_list(profiles_key, "string", profiles)
+            # Launcher scripts
+            if not os.path.exists(self.launcher_dir):
+                os.mkdir(self.launcher_dir)
 
-            # Terminal script
-            with open(self.terminal_script, "w") as f:
-                f.write(self.process_template(self.terminal_script_template))
-            os.chmod(self.terminal_script, 0774)
+            with open(self.launcher_script, "w") as f:
+                f.write(self.process_template(self.launcher_template))
+
+            os.chmod(self.launcher_script, 0774)
+
+            with open(self.launcher_tab_script, "w") as f:
+                f.write(self.process_template(self.launcher_tab_template))
+
+            os.chmod(self.launcher_tab_script, 0774)
+
+            for key, cmd in self.launcher_tabs:
+                tab_file_path = os.path.join(self.launcher_dir, "tab-" + key)
+                with open(tab_file_path, "w") as tab_file:
+                    cmd = self.process_template(cmd)
+                    tab_file.write(cmd)
+                os.chmod(tab_file_path, 0774)
 
             # Desktop file
             with open(self.desktop_file, "w") as f:
