@@ -321,7 +321,8 @@ class Installer(object):
             "metroid": (2, 8),
             "nethack": (2, 9),
             "outrun": (2, 10),
-            "pacman": (2, 11)
+            "pacman": (2, 11),
+            "quake": (2, 12)
         }
         woost_version = "outrun"
         woost_version_specifier = None
@@ -346,7 +347,8 @@ class Installer(object):
             "metroid": "izarra",
             "nethack": "komovica",
             "outrun": "komovica",
-            "pacman": "lambanog"
+            "pacman": "lambanog",
+            "quake": "lambanog"
         }
         linked_system_packages = ["PIL", "PILcompat"]
         cocktail_repository = "https://bitbucket.org/whads/cocktail"
