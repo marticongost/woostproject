@@ -532,8 +532,9 @@ class Installer(object):
         launcher_template = r"""
             #!/bin/bash
             LAUNCHER=--SETUP-VIRTUAL_ENV_DIR--/launcher
+            /usr/lib/gnome-terminal/gnome-terminal-server --app-id info.woost.--SETUP-ALIAS-- --name --SETUP-ALIAS-- --class --SETUP-ALIAS-- &
             /usr/bin/gnome-terminal \
-                --sm-client-disable --disable-factory --class --SETUP-ALIAS-- \
+                --app-id info.woost.--SETUP-ALIAS-- \
                 --SETUP-LAUNCHER_TERMINAL_TAB_PARAMETERS--
             """
 
