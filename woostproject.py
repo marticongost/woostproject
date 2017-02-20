@@ -4,7 +4,7 @@ u"""
 
 .. moduleauthor:: Martí Congost <marti.congost@whads.com>
 """
-from argparse import ArgumentParser
+from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from collections import OrderedDict
 import os
 import re
@@ -49,7 +49,8 @@ class Installer(object):
             command_parser = subparsers.add_parser(
                 name,
                 help = command.help,
-                description = command.description
+                description = command.description,
+                formatter_class = RawDescriptionHelpFormatter
             )
             command.setup_cli(command_parser)
 
@@ -241,14 +242,24 @@ class Installer(object):
     class BootstrapCommand(Command):
 
         name = "bootstrap"
-        help = """
-            Install the system packages required by Woost and apply global
-            configuration.
-            """
-        description = help
+        help = \
+            "Install the system packages required by Woost and apply global " \
+            "configuration."
+
+        @property
+        def description(self):
+            return (
+                self.help
+                + "\n\nThe following features can be "
+                  "selected / deselected using the "
+                  "--with-feature / --without-feature parameters:\n\n"
+                + "\n".join(
+                    ("  %s%s" % ((key + ":").ljust(22), feature["help"]))
+                    for key, feature in self.features.iteritems()
+                )
+            )
 
         packages = [
-            "mercurial",
             "build-essential",
             "python-dev",
             "python-pip",
@@ -256,10 +267,27 @@ class Installer(object):
             "python-imaging",
             "libxml2-dev",
             "libxslt1-dev",
-            "ghostscript",
             "apache2",
             "lib32z1-dev"
         ]
+
+        features = {
+            "launcher": {
+                "help": "Create desktop launchers for Woost projects",
+                "packages": ["xtitle", "gnome-terminal"]
+            },
+            "pdf": {
+                "help": "Generate thumbnails of PDF files",
+                "packages": ["ghostscript"]
+            },
+            "mercurial": {
+                "help": "Create Mercurial repositories for Woost projects",
+                "packages": ["mercurial"]
+            }
+        }
+
+        # Enable all features by default
+        selected_features = set(features)
 
         apache_modules = [
             "rewrite",
@@ -268,13 +296,46 @@ class Installer(object):
         ]
 
         def __call__(self):
+            self.init_config()
             self.install_packages()
             self.setup_apache()
             self.secure_eggs_folder()
 
+        def setup_cli(self, parser):
+
+            parser.add_argument("--with-feature",
+                help = "Enables the specified feature.",
+                choices = list(self.features),
+                nargs = "+",
+                metavar = "feature",
+                dest = "added_features",
+                default = set()
+            )
+
+            parser.add_argument("--without-feature",
+                help = "Disables the specified feature.",
+                choices = list(self.features),
+                nargs = "+",
+                metavar = "feature",
+                dest = "removed_features",
+                default = set()
+            )
+
+        def init_config(self):
+            self.selected_features = set(self.selected_features)
+            self.selected_features.update(self.added_features)
+            self.selected_features.difference_update(self.removed_features)
+
         def install_packages(self):
-            self.installer.heading("Installing system packages")
+            self.installer.heading("Installing core dependencies")
             self.installer._sudo("apt-get", "install", "-y", *self.packages)
+
+            for feature in self.selected_features:
+                self.installer.heading("Installing %s support" % feature)
+                feature = self.features[feature]
+                self.installer._sudo(
+                    "apt-get", "install", "-y", *feature["packages"]
+                )
 
         def setup_apache(self):
             self.installer.heading("Global setup for the Apache webserver")
