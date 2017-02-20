@@ -335,7 +335,7 @@ class Installer(object):
         base_id = None
         launcher = "auto"
         recreate_env = False
-        mercurial = True
+        mercurial = False
         python_version = "2.7"
         cocktail_versions = {
             "joust": "gin",
