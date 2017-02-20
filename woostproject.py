@@ -463,7 +463,6 @@ class Installer(object):
             """
 
         terminal_profile = None
-        terminal_source_profile = "Default"
         terminal_profile_settings = {}
 
         launcher_script = None
@@ -1490,7 +1489,12 @@ class Installer(object):
                 ])
 
             # Profile settings
-            source_profile_uuid = profile_uuid_map[self.terminal_source_profile]
+            source_profile_uuid = subprocess.check_output([
+                "/usr/bin/gsettings",
+                "get",
+                "org.gnome.Terminal.ProfilesList",
+                "default"
+            ])
             source_profile_keys = subprocess.check_output([
                 "/usr/bin/gsettings",
                 "list-keys",
