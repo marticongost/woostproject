@@ -46,7 +46,11 @@ class Installer(object):
         )
 
         for name, command in self.commands.iteritems():
-            command_parser = subparsers.add_parser(name, help = command.help)
+            command_parser = subparsers.add_parser(
+                name,
+                help = command.help,
+                description = command.description
+            )
             command.setup_cli(command_parser)
 
         return parser
@@ -223,6 +227,7 @@ class Installer(object):
 
         name = None
         help = None
+        description = None
 
         def __init__(self, installer):
             self.installer = installer
@@ -240,6 +245,7 @@ class Installer(object):
             Install the system packages required by Woost and apply global
             configuration.
             """
+        description = help
 
         packages = [
             "mercurial",
@@ -1566,6 +1572,7 @@ class Installer(object):
 
         name = "new"
         help = "Create a new Woost website."
+        description = help
 
         def setup_cli(self, parser):
 
@@ -1615,6 +1622,7 @@ class Installer(object):
 
         name = "copy"
         help = "Create a new installation of an existing project."
+        description = help
 
         def setup_cli(self, parser):
 
