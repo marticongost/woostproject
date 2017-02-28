@@ -1295,6 +1295,7 @@ class Installer(object):
             shutil.copy(
                 os.path.join(
                     self.source_installation,
+                    self.website.lower(),
                     *(
                         self.package.split(".")
                         + ["data", "database.fs"]
@@ -1368,6 +1369,7 @@ class Installer(object):
                 self.installer.heading("Copying uploads")
                 source_folder = os.path.join(
                     self.source_installation,
+                    self.website.lower(),
                     *(
                         self.package.split(".")
                         + ["upload"]
