@@ -1686,6 +1686,8 @@ class Installer(object):
         name = "copy"
         help = "Create a new installation of an existing project."
         description = help
+        skip_database = False
+        skip_uploads = False
 
         def setup_cli(self, parser):
 
@@ -1698,6 +1700,25 @@ class Installer(object):
                     the project.
                     """
             )
+
+            parser.add_argument("--skip-database",
+                help = """Don't copy the database.""",
+                action = "store_true"
+            )
+
+            parser.add_argument("--skip-uploads",
+                help = u"""Don't copy uploaded files.""",
+                action = "store_true"
+            )
+
+        def copy_database(self):
+            if not self.skip_database:
+                InstallCommand.copy_database(self)
+
+        def copy_uploads(self):
+            if not self.skip_uploads:
+                InstallCommand.copy_uploads(self)
+
 
 
 class ProjectSkeleton(object):
