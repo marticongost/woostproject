@@ -1172,15 +1172,17 @@ class Installer(object):
             self.installer.heading("Creating the project skeleton")
 
             # Copy source code from an existing installation using mercurial
-            cloning_hg_repository = (
-                self.source_installation
-                and os.path.exists(
-                    os.path.join(self.source_installation, ".hg")
+            if self.source_installation:
+                source_repository = os.path.join(
+                    self.source_installation,
+                    self.website.lower(),
+                    ".hg"
                 )
-            )
+            else:
+                source_repository = None
 
             if (
-                cloning_hg_repository
+                source_repository
                 and not os.path.exists(
                     os.path.join(self.project_outer_dir, ".hg")
                 )
@@ -1274,7 +1276,7 @@ class Installer(object):
                 f.write(setup_source)
 
             # Discard generated files that are managed with version control
-            if cloning_hg_repository:
+            if source_repository:
                 self.installer._exec(
                     "hg", "revert", "--all", "--no-backup",
                     "-R", self.project_outer_dir
@@ -1713,11 +1715,11 @@ class Installer(object):
 
         def copy_database(self):
             if not self.skip_database:
-                InstallCommand.copy_database(self)
+                Installer.InstallCommand.copy_database(self)
 
         def copy_uploads(self):
             if not self.skip_uploads:
-                InstallCommand.copy_uploads(self)
+                Installer.InstallCommand.copy_uploads(self)
 
 
 
