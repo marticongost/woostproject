@@ -654,7 +654,48 @@ class Installer(object):
                 help = "The name of the website to create."
             )
 
-            parser.add_argument("--installation-id",
+            parser.loc_group = parser.add_argument_group(
+                "Location",
+                "Options controlling the naming and placement of the "
+                "application in the filesystem and in Python's package "
+                "hierarchy."
+            )
+
+            parser.loc_group.add_argument("--workspace",
+                help = """
+                    The root folder where the website should be installed. If
+                    not given it defaults to the value of the WORKSPACE
+                    environment variable. The installer will create a folder
+                    for the website in the workspace folder, named after the
+                    'alias' (if present) or 'website' parameters.
+                    """
+            )
+
+            parser.loc_group.add_argument("--alias",
+                help = """
+                    If given, the website will be installed under a different
+                    identifier. This is useful to install multiple copies of
+                    the same website on a single host. Each installation should
+                    have a different installation_id and hostname.
+                    """,
+                default = self.alias
+            )
+
+            parser.loc_group.add_argument("--package",
+                help = """
+                    The fully qualified name of the Python package that will
+                    contain the website. Leave blank to use the website's name
+                    as the name of its package.
+                    """,
+                default = self.package
+            )
+
+            parser.cms_group = parser.add_argument_group(
+                "CMS",
+                "Options concerning the content and behavior of the CMS."
+            )
+
+            parser.cms_group.add_argument("--installation-id",
                 help = """
                     A string that uniquely identifies this instance of the
                     website. Will be used during content synchronization across
@@ -666,36 +707,7 @@ class Installer(object):
                 default = self.installation_id
             )
 
-            parser.add_argument("--alias",
-                help = """
-                    If given, the website will be installed under a different
-                    identifier. This is useful to install multiple copies of
-                    the same website on a single host. Each installation should
-                    have a different installation_id and hostname.
-                    """,
-                default = self.alias
-            )
-
-            parser.add_argument("--package",
-                help = """
-                    The fully qualified name of the Python package that will
-                    contain the website. Leave blank to use the website's name
-                    as the name of its package.
-                    """,
-                default = self.package
-            )
-
-            parser.add_argument("--workspace",
-                help = """
-                    The root folder where the website should be installed. If
-                    not given it defaults to the value of the WORKSPACE
-                    environment variable. The installer will create a folder
-                    for the website in the workspace folder, named after the
-                    'alias' (if present) or 'website' parameters.
-                    """
-            )
-
-            parser.add_argument("--woost-version",
+            parser.cms_group.add_argument("--woost-version",
                 help = """
                     The version of Woost that the website will be based on.
                     """,
@@ -703,16 +715,12 @@ class Installer(object):
                 default = self.woost_version
             )
 
-            parser.add_argument("--hostname",
-                help = """
-                    The hostname that the website should respond to. Leaving
-                    it blank will default to "website.localhost" (where
-                    "website" is the alias or name of your website).
-                    """,
-                default = self.hostname
+            parser.deployment_group = parser.add_argument_group(
+                "Deployment",
+                "Options to control the deployment of the application."
             )
 
-            parser.add_argument("--deployment-scheme",
+            parser.deployment_group.add_argument("--deployment-scheme",
                 help = """
                     Choose between different deployment strategies for the
                     application. The default option is to serve the website using
@@ -726,7 +734,16 @@ class Installer(object):
                 default = self.deployment_scheme
             )
 
-            parser.add_argument("--modify-hosts-file",
+            parser.deployment_group.add_argument("--hostname",
+                help = """
+                    The hostname that the website should respond to. Leaving
+                    it blank will default to "website.localhost" (where
+                    "website" is the alias or name of your website).
+                    """,
+                default = self.hostname
+            )
+
+            parser.deployment_group.add_argument("--modify-hosts-file",
                 help = """
                     Activating this flag will modify the system "hosts" file to
                     make the given hostname map to the local host. This can be
@@ -737,16 +754,7 @@ class Installer(object):
                 default = self.modify_hosts_file
             )
 
-            parser.add_argument("--recreate-env",
-                help = """
-                    If enabled, the installer will delete and recreate the Python
-                    virtual environment for the project (if one already exists).
-                    """,
-                action = "store_true",
-                default = self.recreate_env
-            )
-
-            parser.add_argument("--port",
+            parser.deployment_group.add_argument("--port",
                 help = """
                     The port that the application server will listen on. Leave
                     blank to obtain an incremental port.
@@ -755,7 +763,7 @@ class Installer(object):
                 default = self.port
             )
 
-            parser.add_argument("--zeo-port",
+            parser.deployment_group.add_argument("--zeo-port",
                 help = """
                     The port that the database server will listen on. Leave
                     blank to obtain an incremental port.
@@ -764,7 +772,13 @@ class Installer(object):
                 default = self.zeo_port
             )
 
-            parser.add_argument("--launcher",
+            parser.launcher_group = parser.add_argument_group(
+                "Launcher",
+                "Options to create an application launcher for desktop "
+                "environments."
+            )
+
+            parser.launcher_group.add_argument("--launcher",
                 help = """
                     Indicates if the installer should create a desktop launcher
                     for the website. The launcher will start a terminal window
@@ -776,7 +790,7 @@ class Installer(object):
                 default = self.launcher
             )
 
-            parser.add_argument("--launcher-icon",
+            parser.launcher_group.add_argument("--launcher-icon",
                 help = """
                     Path to the icon that should be used by the launcher. Can
                     be given multiple times, to provide icons in different
@@ -796,6 +810,15 @@ class Installer(object):
                     """,
                 action = "store_true",
                 default = self.mercurial
+            )
+
+            parser.add_argument("--recreate-env",
+                help = """
+                    If enabled, the installer will delete and recreate the Python
+                    virtual environment for the project (if one already exists).
+                    """,
+                action = "store_true",
+                default = self.recreate_env
             )
 
         def __call__(self):
@@ -1644,7 +1667,7 @@ class Installer(object):
 
             Installer.InstallCommand.setup_cli(self, parser)
 
-            parser.add_argument("--language", "-l",
+            parser.cms_group.add_argument("--language", "-l",
                 help = """
                     The list of languages for the website. Languages should be
                     indicated using two letter ISO codes.
@@ -1655,17 +1678,17 @@ class Installer(object):
                 default = self.languages
             )
 
-            parser.add_argument("--admin-email",
+            parser.cms_group.add_argument("--admin-email",
                 help = "The e-mail for the administrator account.",
                 default = self.admin_email
             )
 
-            parser.add_argument("--admin-password",
+            parser.cms_group.add_argument("--admin-password",
                 help = "The password for the administrator account.",
                 default = self.admin_password
             )
 
-            parser.add_argument("--extension", "-e",
+            parser.cms_group.add_argument("--extension", "-e",
                 help = """The list of extensions to enable.""",
                 dest = "extensions",
                 metavar = "EXT_NAME",
@@ -1673,7 +1696,7 @@ class Installer(object):
                 default = self.extensions
             )
 
-            parser.add_argument("--base-id",
+            parser.cms_group.add_argument("--base-id",
                 help = """
                     If set, the incremental ID of objects created by the
                     installer will start at the given value. Useful to prevent
@@ -1704,12 +1727,17 @@ class Installer(object):
                     """
             )
 
-            parser.add_argument("--skip-database",
+            parser.copy_group = parser.add_argument_group(
+                "Copy",
+                "Options to control the copy process."
+            )
+
+            parser.copy_group.add_argument("--skip-database",
                 help = """Don't copy the database.""",
                 action = "store_true"
             )
 
-            parser.add_argument("--skip-uploads",
+            parser.copy_group.add_argument("--skip-uploads",
                 help = u"""Don't copy uploaded files.""",
                 action = "store_true"
             )
