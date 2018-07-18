@@ -710,7 +710,8 @@ class Installer(object):
             parser.cms_group.add_argument("--woost-version",
                 help = """
                     The version of Woost that the website will be based on.
-                    """,
+                    Defaults to '%s' (the latest stable version).
+                    """ % self.woost_version,
                 choices = sorted(self.woost_releases),
                 default = self.woost_version
             )
