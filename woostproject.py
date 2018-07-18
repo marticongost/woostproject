@@ -696,7 +696,7 @@ class Installer(object):
 
             parser.add_argument("--woost-version",
                 help = """
-                    The version of Woost that the weebsite will be based on.
+                    The version of Woost that the website will be based on.
                     """,
                 choices = sorted(self.woost_releases),
                 default = self.woost_version
