@@ -660,7 +660,8 @@ class Installer(object):
                     website. Will be used during content synchronization across
                     site installations. Examples: D (for development), P (for
                     production), CS-JS (for John Smith at Cromulent Soft). If
-                    not set, it defaults to the hostname.
+                    not set, it defaults to the value of the
+                    WOOST_INSTALLATION_ID environment variable.
                     """,
                 default = self.installation_id
             )
