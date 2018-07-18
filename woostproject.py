@@ -738,7 +738,7 @@ class Installer(object):
 
             parser.add_argument("--recreate-env",
                 help = """
-                    If enabled, the installer will delete and recrete the Python
+                    If enabled, the installer will delete and recreate the Python
                     virtual environment for the project (if one already exists).
                     """,
                 action = "store_true",
