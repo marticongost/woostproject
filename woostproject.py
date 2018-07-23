@@ -423,19 +423,7 @@ class Installer(object):
             "development": {
                 "deployment_scheme": "mod_rewrite",
                 "zodb_deployment_scheme": "zeo",
-                "cherrypy_env_global_config": [],
-                "settings_template_tail": [
-                    """
-                    # Always recompile SASS files
-                    from cocktail.controllers.filepublication import SASSPreprocessor
-                    SASSPreprocessor.ignore_cached_files = True
-                    """,
-                    """
-                    # Reload inlined SVG files if they are modified
-                    from cocktail.html import inlinesvg
-                    inlinesvg.cache.updatable = True
-                    """
-                ]
+                "cherrypy_env_global_config": []
             },
             "production": {
                 "deployment_scheme": "mod_wsgi",
@@ -443,13 +431,6 @@ class Installer(object):
                 "cherrypy_env_global_config": [
                     '"engine.autoreload_on": False',
                     '"server.log_to_screen": False'
-                ],
-                "settings_template_tail": [
-                    """
-                    # Disable CML template reloading
-                    from cocktail.html import templates
-                    templates.get_loader().cache.updatable = False
-                    """
                 ]
             }
         }
@@ -583,7 +564,32 @@ class Installer(object):
             session.config["session.type"] = "file"
             """
 
-        settings_template_tail = None
+        settings_template_tail = [
+            (
+                """
+                # Always recompile SASS files
+                from cocktail.controllers.filepublication import SASSPreprocessor
+                SASSPreprocessor.ignore_cached_files = True
+                """,
+                lambda cmd: cmd.environment == "development"
+            ),
+            (
+                """
+                # Reload inlined SVG files if they are modified
+                from cocktail.html import inlinesvg
+                inlinesvg.cache.updatable = True
+                """,
+                lambda cmd: cmd.environment == "development"
+            ),
+            (
+                """
+                # Disable CML template reloading
+                from cocktail.html import templates
+                templates.get_loader().cache.updatable = False
+                """,
+                lambda cmd: cmd.environment == "production"
+            )
+        ]
 
         cherrypy_global_config = [
             '"server.socket_host": "--SETUP-APP_SERVER_HOSTNAME--"',
@@ -1875,7 +1881,12 @@ class Installer(object):
                     )
                     + "\n"
                     + self.installer.normalize_indent(
-                        "".join(self.settings_template_tail)
+                        "".join(
+                            snippet
+                            for snippet, condition
+                                in self.settings_template_tail
+                            if condition(self)
+                        )
                     )
                 )
                 file.write(self.process_template(template))
