@@ -6,13 +6,16 @@ u"""
 """
 from argparse import ArgumentParser, RawDescriptionHelpFormatter
 from collections import OrderedDict
+import sys
 import os
+import getpass
 import re
 import shutil
 import subprocess
 import socket
 import uuid
 import json
+from pwd import getpwnam
 from tempfile import mkdtemp
 from contextlib import contextmanager
 
@@ -69,14 +72,41 @@ class Installer(object):
         subprocess.check_call(args, **kwargs)
 
     def _sudo(self, *args):
-        self._exec("sudo", *args)
+        if self._user_is_root():
+            return self._exec(*args)
+        else:
+            self._exec("sudo", *args)
+
+    def _user_is_root(self):
+        return os.geteuid() == 0
 
     def _sudo_write(self, target, contents):
-        temp_dir = mkdtemp()
-        temp_file_name = os.path.join(temp_dir, "tempfile")
-        with open(temp_file_name, "w") as temp_file:
-            temp_file.write(contents)
-        self._sudo("cp", temp_file_name, target)
+        if self._user_is_root():
+            with open(target, "w") as file:
+                file.write(contents)
+        else:
+            temp_dir = mkdtemp()
+            temp_file_name = os.path.join(temp_dir, "tempfile")
+            with open(temp_file_name, "w") as temp_file:
+                temp_file.write(contents)
+            self._sudo("cp", temp_file_name, target)
+
+    def _get_service_script_path(self, name):
+        return os.path.join("/etc", "init.d", name)
+
+    def _create_service(self, name, script_content):
+        script_path = self._get_service_script_path(name)
+        self._sudo_write(script_path, script_content)
+        self._sudo("/bin/chmod", "744", script_path)
+        self._sudo("update-rc.d", name, "defaults")
+
+    def _start_service(self, name):
+        script_path = self._get_service_script_path(name)
+        self._sudo(script_path, "start")
+
+    def _stop_service(self, name):
+        script_path = self._get_service_script_path(name)
+        self._sudo(script_path, "stop")
 
     _cli_fg_codes = {
         "default": 39,
@@ -280,6 +310,11 @@ class Installer(object):
                 "help": "Generate thumbnails of PDF files",
                 "packages": ["ghostscript"]
             },
+            "mod_wsgi": {
+                "help": "Deploy using mod_wsgi",
+                "packages": ["libapache2-mod-wsgi"],
+                "apache_mods": ["wsgi"]
+            },
             "mercurial": {
                 "help": "Create Mercurial repositories for Woost projects",
                 "packages": ["mercurial"]
@@ -346,6 +381,12 @@ class Installer(object):
             for module in self.apache_modules:
                 self.installer._sudo("a2enmod", module)
 
+            for feature in self.selected_features:
+                feature_mods = self.features[feature].get("apache_mods")
+                if feature_mods:
+                    for module in feature_mods:
+                        self.installer._sudo("a2enmod", module)
+
         def restart_apache(self):
             self.installer._sudo("service", "apache2", "restart")
 
@@ -359,12 +400,16 @@ class Installer(object):
 
         steps = [
             "init_config",
+            "become_dedicated_user",
+            "create_project_directories",
             "create_virtual_environment",
             "install_libs",
             "create_project_skeleton",
+            "write_project_settings",
             "install_website",
             "setup_database",
             "copy_uploads",
+            "configure_zeo_service",
             "configure_apache",
             "add_hostname_to_hosts_file",
             "create_mercurial_repository",
@@ -372,7 +417,45 @@ class Installer(object):
         ]
 
         website = None
+        environment = "development"
+
+        environments = {
+            "development": {
+                "deployment_scheme": "mod_rewrite",
+                "zodb_deployment_scheme": "zeo",
+                "cherrypy_env_global_config": [],
+                "settings_template_tail": [
+                    """
+                    # Always recompile SASS files
+                    from cocktail.controllers.filepublication import SASSPreprocessor
+                    SASSPreprocessor.ignore_cached_files = True
+                    """,
+                    """
+                    # Reload inlined SVG files if they are modified
+                    from cocktail.html import inlinesvg
+                    inlinesvg.cache.updatable = True
+                    """
+                ]
+            },
+            "production": {
+                "deployment_scheme": "mod_wsgi",
+                "zodb_deployment_scheme": "zeo_service",
+                "cherrypy_env_global_config": [
+                    '"engine.autoreload_on": False',
+                    '"server.log_to_screen": False'
+                ],
+                "settings_template_tail": [
+                    """
+                    # Disable CML template reloading
+                    from cocktail.html import templates
+                    templates.get_loader().cache.updatable = False
+                    """
+                ]
+            }
+        }
+
         source_installation = None
+        dedicated_user = None
         installation_id = None
         alias = None
         package = None
@@ -388,13 +471,16 @@ class Installer(object):
             "pacman": (2, 11),
             "quake": (2, 12)
         }
-        woost_version = "outrun"
+        woost_version = "quake"
         woost_version_specifier = None
         hostname = None
-        deployment_scheme = "mod_rewrite"
+        deployment_scheme = None
         modify_hosts_file = False
         port = None
+        zodb_deployment_scheme = None
         zeo_port = None
+        zeo_service_user = None
+        zeo_service_name = None
         languages = ("en",)
         admin_email = "admin@localhost"
         admin_password = None
@@ -412,7 +498,7 @@ class Installer(object):
             "nethack": "komovica",
             "outrun": "komovica",
             "pacman": "lambanog",
-            "quake": "lambanog"
+            "quake": "mezcal"
         }
         linked_system_packages = ["PIL", "PILcompat"]
         cocktail_repository = "https://bitbucket.org/whads/cocktail"
@@ -431,6 +517,8 @@ class Installer(object):
         static_dir = None
         launcher_dir = None
         python_bin = None
+        python_lib_path = None
+        useradd_script = "/usr/sbin/useradd"
         empty_project_folders = [
             ["data"],
             ["static", "images"],
@@ -440,13 +528,19 @@ class Installer(object):
             ["sessions"]
         ]
 
+        dedicated_user_bash_aliases_template = """
+            export WORKSPACE="--SETUP-WORKSPACE--"
+            export WOOST_INSTALLATION_ID="--SETUP-INSTALLATION_ID--"
+            source --SETUP-PROJECT_ENV_SCRIPT--
+        """
+
         project_env_template = """
-            source ~/.bashrc
             source --SETUP-VIRTUAL_ENV_DIR--/bin/activate
             export COCKTAIL=--SETUP-COCKTAIL_DIR--
             export WOOST=--SETUP-WOOST_DIR--
             export SITE=--SETUP-PROJECT_DIR--
-            alias "site-shell=ipython -i --SETUP-PROJECT_DIR--/scripts/shell.py"
+            alias "site-shell=ipython --no-term-title -i --SETUP-PROJECT_DIR--/scripts/shell.py"
+            alias "cml=python -m cocktail.html.templates.loader"
             """
 
         setup_template = """
@@ -464,6 +558,85 @@ class Installer(object):
             )
             """
 
+        settings_template = """
+            from woost import app
+            app.package = "--SETUP-PACKAGE--"
+            app.installation_id = "--SETUP-INSTALLATION_ID--"
+
+            # Application server configuration
+            import cherrypy
+            cherrypy.config.update({
+                "global": {
+                    ==SETUP-INCLUDE_CHERRYPY_GLOBAL_CONFIG==
+                }
+            })
+
+            # Object store provider
+            from cocktail.persistence import datastore
+            from ZEO.ClientStorage import ClientStorage
+            db_host = "127.0.0.1"
+            db_port = --SETUP-ZEO_PORT--
+            datastore.storage = lambda: ClientStorage((db_host, db_port))
+
+            # Use file based sessions
+            from cocktail.controllers import session
+            session.config["session.type"] = "file"
+            """
+
+        settings_template_tail = None
+
+        cherrypy_global_config = [
+            '"server.socket_host": "--SETUP-APP_SERVER_HOSTNAME--"',
+            '"server.socket_port": --SETUP-PORT--',
+            '"tools.encode.on": True',
+            '"tools.encode.encoding": "utf-8"',
+            '"tools.decode.on": True',
+            '"tools.decode.encoding": "utf-8"'
+        ]
+        cherrypy_env_global_config = None
+
+        zeo_service_script_template = """
+            #!/bin/bash
+            DESC="--SETUP-ALIAS-- ZEO"
+            NAME=--SETUP-ZEO_SERVICE_NAME--
+            USER=--SETUP-ZEO_SERVICE_USER--
+            SCRIPTNAME=/etc/init.d/$NAME
+            RUNDIR=/var/run/$NAME
+            echo=/bin/echo
+            RUNZEO="--SETUP-VIRTUAL_ENV_DIR--/bin/runzeo --pid-file $RUNDIR/$NAME.pid -f --SETUP-PROJECT_DIR--/data/database.fs -a 127.0.0.1:--SETUP-ZEO_PORT--"
+            ZEOCTL="--SETUP-VIRTUAL_ENV_DIR--/bin/zeoctl -d -s $RUNDIR/$NAME.socket -u $USER"
+
+            if [ `id -u` = 0 ]; then
+
+                mkdir -p $RUNDIR
+                chown $USER $RUNDIR
+
+                case "$1" in
+                  start)
+                        $echo -n "Starting $DESC: $NAME "
+                        $ZEOCTL -p "$RUNZEO" start
+                        $echo "."
+                        ;;
+                  stop)
+                        $echo -n "Stopping $DESC: $NAME "
+                        $ZEOCTL -p "$RUNZEO" stop
+                        echo "."
+                        ;;
+                  restart)
+                        $echo -n "Restarting $DESC: $NAME "
+                        $ZEOCTL -p "$RUNZEO" restart
+                        echo "."
+                        ;;
+                  *)
+                        $echo "Usage: $SCRIPTNAME {start|stop|restart}" >&2
+                        exit 1
+                        ;;
+                esac
+            else
+                    echo "You MUST be root to execute this command"
+            fi
+        """
+
         apache_2_vhost_template = """
             <VirtualHost *:80>
 
@@ -479,20 +652,7 @@ class Installer(object):
                 </Proxy>
                 ProxyPreserveHost On
                 SetEnv proxy-nokeepalive 1
-
-                RewriteRule ^/$ http://--SETUP-APP_SERVER_HOST--/ [P]
-
-                RewriteCond %{QUERY_STRING} ^(.+)$
-                RewriteRule ^(.*)$ http://--SETUP-APP_SERVER_HOST--$1 [P]
-
-                # Always serve CSS source and maps generated from SASS files dynamically
-                RewriteRule ^(.*\.scss\.(css|map))$ http://--SETUP-APP_SERVER_HOST--$1 [P]
-
-                RewriteCond %{DOCUMENT_ROOT}/$1 !-f
-                RewriteCond %{DOCUMENT_ROOT}/$1 !-d
-                RewriteCond %{DOCUMENT_ROOT}/$1 !-s
-                RewriteRule ^(.*)$ http://--SETUP-APP_SERVER_HOST--$1 [P]
-
+                ==SETUP-INCLUDE_VHOST_REDIRECTION_RULES==
                 <Location />
                     Order deny,allow
                     Allow from all
@@ -500,6 +660,43 @@ class Installer(object):
 
             </VirtualHost>
             """
+
+        vhost_redirection_rules = [
+            (
+                """
+                # Always serve the home page dynamically
+                RewriteRule ^/$ http://--SETUP-APP_SERVER_HOST--/ [P]
+                """,
+                lambda cmd: True
+            ),
+            (
+                """
+                # Always serve requests with query string parameters
+                # dynamically
+                RewriteCond %{QUERY_STRING} ^(.+)$
+                RewriteRule ^(.*)$ http://--SETUP-APP_SERVER_HOST--$1 [P]
+                """,
+                lambda cmd: True
+            ),
+            (
+                """
+                # Always serve CSS source and maps generated from SASS files dynamically
+                RewriteRule ^(.*\.scss\.(css|map))$ http://--SETUP-APP_SERVER_HOST--$1 [P]
+                """,
+                lambda cmd: cmd.environment == "development"
+            ),
+            (
+                """
+                # Only serve content dynamically if there is no file or folder
+                # in the DocumentRoot that matches the request path
+                RewriteCond %{DOCUMENT_ROOT}/$1 !-f
+                RewriteCond %{DOCUMENT_ROOT}/$1 !-d
+                RewriteCond %{DOCUMENT_ROOT}/$1 !-s
+                RewriteRule ^(.*)$ http://--SETUP-APP_SERVER_HOST--$1 [P]
+                """,
+                lambda cmd: True
+            )
+        ]
 
         apache_2_4_vhost_template = """
             <VirtualHost *:80>
@@ -509,25 +706,60 @@ class Installer(object):
 
                 RewriteEngine On
                 ProxyPreserveHost On
-                RewriteRule ^/$ http://--SETUP-APP_SERVER_HOST--/ [P]
-
-                RewriteCond %{QUERY_STRING} ^(.+)$
-                RewriteRule ^(.*)$ http://--SETUP-APP_SERVER_HOST--$1 [P]
-
-                # Always serve CSS source and maps generated from SASS files dynamically
-                RewriteRule ^(.*\.scss\.(css|map))$ http://--SETUP-APP_SERVER_HOST--$1 [P]
-
-                RewriteCond %{DOCUMENT_ROOT}$1 !-f
-                RewriteCond %{DOCUMENT_ROOT}$1 !-d
-                RewriteCond %{DOCUMENT_ROOT}$1 !-s
-                RewriteRule ^(.*)$ http://--SETUP-APP_SERVER_HOST--$1 [P]
-
+                ==SETUP-INCLUDE_VHOST_REDIRECTION_RULES==
                 <Location />
                     Require all granted
                 </Location>
 
             </VirtualHost>
             """
+
+        mod_wsgi_vhost_template = r"""
+            # mod_wsgi application
+            Listen --SETUP-PORT--
+
+            <VirtualHost --SETUP-APP_SERVER_HOST-->
+
+                ServerName --SETUP-HOSTNAME--
+                DocumentRoot --SETUP-STATIC_DIR--
+
+                WSGIDaemonProcess --SETUP-MOD_WSGI_DAEMON_NAME-- \
+                    user=--SETUP-MOD_WSGI_DAEMON_USER-- \
+                    group=--SETUP-MOD_WSGI_DAEMON_GROUP-- \
+                    processes=--SETUP-MOD_WSGI_DAEMON_PROCESSES-- \
+                    threads=--SETUP-MOD_WSGI_DAEMON_THREADS-- \
+                    display-name=--SETUP-MOD_WSGI_DAEMON_DISPLAY_NAME-- \
+                    python-path=--SETUP-PYTHON_LIB_PATH-- \
+                    python-eggs=--SETUP-MOD_WSGI_DAEMON_PYTHON_EGGS-- \
+                    maximum-requests=--SETUP-MOD_WSGI_DAEMON_MAXIMUM_REQUESTS--
+
+                WSGIProcessGroup --SETUP-MOD_WSGI_PROCESS_GROUP--
+                WSGIApplicationGroup --SETUP-MOD_WSGI_APPLICATION_GROUP--
+                WSGIImportScript --SETUP-PROJECT_SCRIPTS_DIR--/wsgi.py process-group=--SETUP-MOD_WSGI_PROCESS_GROUP-- application-group=--SETUP-MOD_WSGI_APPLICATION_GROUP--
+                WSGIScriptAlias / --SETUP-PROJECT_SCRIPTS_DIR--/wsgiapp.py
+
+                <Directory --SETUP-STATIC_DIR-->
+                    Require all granted
+                    WSGIProcessGroup --SETUP-MOD_WSGI_PROCESS_GROUP--
+                </Directory>
+
+                <Directory --SETUP-PROJECT_SCRIPTS_DIR-->
+                    Require all granted
+                </Directory>
+
+            </VirtualHost>
+            """
+
+        mod_wsgi_daemon_name = None
+        mod_wsgi_daemon_user = None
+        mod_wsgi_daemon_group = None
+        mod_wsgi_daemon_processes = 1
+        mod_wsgi_daemon_threads = 10
+        mod_wsgi_daemon_display_name = None
+        mod_wsgi_daemon_python_eggs = None
+        mod_wsgi_daemon_maximum_requests = 5000
+        mod_wsgi_process_group = None
+        mod_wsgi_application_group = None
 
         terminal_profile = None
         terminal_profile_settings = {}
@@ -544,7 +776,8 @@ class Installer(object):
                 export TAB_COMMAND='./rundb.sh'
                 cd --SETUP-PROJECT_SCRIPTS_DIR--
                 bash --init-file --SETUP-LAUNCHER_TAB_SCRIPT--
-                """
+                """,
+                lambda cmd: cmd.zodb_deployment_scheme == "zeo"
             ),
             (
                 "http",
@@ -554,7 +787,8 @@ class Installer(object):
                 export TAB_COMMAND='python run.py'
                 cd --SETUP-PROJECT_SCRIPTS_DIR--
                 bash --init-file --SETUP-LAUNCHER_TAB_SCRIPT--
-                """
+                """,
+                lambda cmd: cmd.deployment_scheme != "mod_wsgi"
             ),
             (
                 "cocktail",
@@ -563,7 +797,8 @@ class Installer(object):
                 export TAB_TITLE=Cocktail
                 cd --SETUP-COCKTAIL_DIR--
                 bash --init-file --SETUP-LAUNCHER_TAB_SCRIPT--
-                """
+                """,
+                lambda cmd: True
             ),
             (
                 "woost",
@@ -572,7 +807,8 @@ class Installer(object):
                 export TAB_TITLE=Woost
                 cd --SETUP-WOOST_DIR--
                 bash --init-file --SETUP-LAUNCHER_TAB_SCRIPT--
-                """
+                """,
+                lambda cmd: True
             ),
             (
                 "site",
@@ -581,7 +817,8 @@ class Installer(object):
                 export TAB_TITLE=Site
                 cd --SETUP-PROJECT_DIR--
                 bash --init-file --SETUP-LAUNCHER_TAB_SCRIPT--
-                """
+                """,
+                lambda cmd: True
             ),
             (
                 "ipython",
@@ -591,7 +828,8 @@ class Installer(object):
                 export TAB_COMMAND='site-shell'
                 cd --SETUP-PROJECT_SCRIPTS_DIR--
                 bash --init-file --SETUP-LAUNCHER_TAB_SCRIPT--
-                """
+                """,
+                lambda cmd: True
             )
         ]
 
@@ -606,11 +844,7 @@ class Installer(object):
 
         launcher_tab_template = r"""
             source ~/.bashrc
-            source --SETUP-VIRTUAL_ENV_DIR--/bin/activate
-            export COCKTAIL=--SETUP-COCKTAIL_DIR--
-            export WOOST=--SETUP-WOOST_DIR--
-            export SITE=--SETUP-PROJECT_DIR--
-            alias "site-shell=ipython --no-term-title -i --SETUP-PROJECT_SCRIPTS_DIR--/shell.py"
+            source --SETUP-PROJECT_ENV_SCRIPT--
 
             function site-tab-title {
                 xtitle "--SETUP-ALIAS--: $1"
@@ -643,6 +877,7 @@ class Installer(object):
             StartupWMClass=--SETUP-ALIAS--
             """
 
+        mercurial_user = None
         first_commit_message = u"Created the project."
 
         def _python(self, command):
@@ -652,6 +887,30 @@ class Installer(object):
 
             parser.add_argument("website",
                 help = "The name of the website to create."
+            )
+
+            parser.add_argument("--environment",
+                help = """
+                    Choose between a development or a production environment.
+                    This can change the defaults for several parameters, as
+                    well as enable or disable certain features (such as
+                    on screen logging, automatic reloading on code changes or
+                    SASS recompilation). Defaults to %s.
+                    """ % self.environment,
+                choices = list(self.environments),
+                default = self.environment
+            )
+
+            parser.add_argument("--steps",
+                help = """
+                    The steps to execute. Useful to skip certain tasks when
+                    ammending or fixing a previous installation. Default
+                    sequence: %s
+                    """ % " ".join(self.steps),
+                nargs = "+",
+                metavar = "step",
+                choices = list(self.steps),
+                default = self.steps
             )
 
             parser.loc_group = parser.add_argument_group(
@@ -688,6 +947,16 @@ class Installer(object):
                     as the name of its package.
                     """,
                 default = self.package
+            )
+
+            parser.loc_group.add_argument("--dedicated-user",
+                help = """
+                    Indicates that the project should be bound to a specific
+                    OS user. The user will be created, if it doesn't exist, and
+                    its bash initialization files will be changed in order to
+                    set the appropiate environment variables and to activate
+                    the project's virtual environment by default.
+                    """
             )
 
             parser.cms_group = parser.add_argument_group(
@@ -729,8 +998,14 @@ class Installer(object):
                     mod_wsgi option is better for production environments. The
                     cherrypy option self hosts the application using a single
                     process; this can be a useful alternative if installing
-                    apache is not possible or desirable.
-                    """,
+                    apache is not possible or desirable. Defaults to %s.
+                    """ % (
+                        self.deployment_scheme
+                        or ", ".join(
+                            "%s (%s)" % (defaults["deployment_scheme"], env)
+                            for env, defaults in self.environments.iteritems()
+                        )
+                    ),
                 choices = ["mod_rewrite", "mod_wsgi", "cherrypy"],
                 default = self.deployment_scheme
             )
@@ -764,9 +1039,48 @@ class Installer(object):
                 default = self.port
             )
 
-            parser.deployment_group.add_argument("--zeo-port",
+            parser.db_group = parser.add_argument_group(
+                "DB",
+                "Options controlling the behavior of the database."
+            )
+
+            parser.db_group.add_argument("--zodb-deployment-scheme",
                 help = """
-                    The port that the database server will listen on. Leave
+                    Indicates how to serve the application's ZODB database.
+                    'zeo_service' configures a script to launch a ZEO server as
+                    a daemon, using zeoctl. This makes sure the database server
+                    is started when the system starts. The 'zeo' option expects
+                    the server to be executed manually (for example, as one of
+                    the tabs provided by the desktop launcher) or managed
+                    elsewhere. Defaults to %s.
+                    """ % (
+                        self.zodb_deployment_scheme
+                        or ", ".join(
+                            "%s (%s)" % (defaults["zodb_deployment_scheme"], env)
+                            for env, defaults in self.environments.iteritems()
+                        )
+                    ),
+                choices = ["zeo", "zeo_service"],
+                default = self.zodb_deployment_scheme
+            )
+
+            parser.db_group.add_argument("--zeo-service-user",
+                help = """
+                    Sets the user that should run the ZEO server when
+                    configured to run as a service
+                    (--zodb-deployment-scheme='zeo_service). Defaults to
+                    %s.
+                    """ % (
+                        self.zeo_service_user
+                        or "--dedicated-user, if set, or to the current user "
+                           "otherwise"
+                    ),
+                default = self.zeo_service_user
+            )
+
+            parser.db_group.add_argument("--zeo-port",
+                help = """
+                    The port that the ZEO server will listen on. Leave
                     blank to obtain an incremental port.
                     """,
                 type = int,
@@ -804,13 +1118,30 @@ class Installer(object):
                 default = self.launcher_icons
             )
 
-            parser.add_argument("--mercurial",
+            parser.mercurial_group = parser.add_argument_group(
+                "Mercurial",
+                "Options to create a Mercurial repository for the project."
+            )
+
+            parser.mercurial_group.add_argument("--mercurial",
                 help = """
                     If enabled, the installer will automatically create a
                     mercurial repository for the new website.
                     """,
                 action = "store_true",
                 default = self.mercurial
+            )
+
+            parser.mercurial_group.add_argument("--mercurial-user",
+                help = """
+                    The user used to make the project's first commit. Defaults
+                    to %s.
+                    """
+                    % (
+                        self.mercurial_user
+                        or "the value set in the Mercurial configuration files"
+                    ),
+                default = self.mercurial_user
             )
 
             parser.add_argument("--recreate-env",
@@ -820,6 +1151,98 @@ class Installer(object):
                     """,
                 action = "store_true",
                 default = self.recreate_env
+            )
+
+            parser.mod_wsgi_group = parser.add_argument_group(
+                "mod_wsgi",
+                "Parameters for mod_wsgi deployments "
+                "(--deployment-scheme=mod_wsgi)."
+            )
+
+            parser.mod_wsgi_group.add_argument("--mod-wsgi-daemon-name",
+                help = """
+                    The name of the daemon spawned by mod-wsgi. Defaults to the
+                    project's alias.
+                    """,
+                default = self.mod_wsgi_daemon_name
+            )
+
+            parser.mod_wsgi_group.add_argument("--mod-wsgi-daemon-user",
+                help = """
+                    The OS user that the daemon spawned by mod-wsgi will run
+                    under. Defaults to %s.
+                    """ % (
+                        self.mod_wsgi_daemon_user
+                        or "--dedicated-user, if set, or to the current user "
+                           "otherwise"
+                    ),
+                default = self.mod_wsgi_daemon_user
+            )
+
+            parser.mod_wsgi_group.add_argument("--mod-wsgi-daemon-group",
+                help = """
+                    The OS group that the daemon spawned by mod-wsgi will run
+                    under. Defaults to %s.
+                    """ % (
+                        self.mod_wsgi_daemon_group
+                        or "the effective value for --mod-wsgi-daemon-user"
+                    ),
+                default = self.mod_wsgi_daemon_group
+            )
+
+            parser.mod_wsgi_group.add_argument("--mod-wsgi-daemon-processes",
+                help = """
+                    The number of processes available to the daemon spawned by
+                    mod-wsgi. Defaults to %d.
+                    """ % self.mod_wsgi_daemon_processes,
+                default = self.mod_wsgi_daemon_processes
+            )
+
+            parser.mod_wsgi_group.add_argument("--mod-wsgi-daemon-threads",
+                help = """
+                    The number of threads available to each process of the
+                    daemon spawned by mod-wsgi. Defaults to %d.
+                    """ % self.mod_wsgi_daemon_threads,
+                default = self.mod_wsgi_daemon_threads
+            )
+
+            parser.mod_wsgi_group.add_argument("--mod-wsgi-daemon-display-name",
+                help = """
+                    The display name for the processes of the daemon spawned
+                    by mod-wsgi. Defaults to the project's alias.
+                    """,
+                default = self.mod_wsgi_daemon_display_name
+            )
+
+            parser.mod_wsgi_group.add_argument("--mod-wsgi-daemon-python_eggs",
+                help = """
+                    A path to a directory that will be used by mod-wsgi to
+                    store Python eggs.
+                    """,
+                default = self.mod_wsgi_daemon_python_eggs
+            )
+
+            parser.mod_wsgi_group.add_argument("--mod-wsgi-daemon-maximum-requests",
+                help = """
+                    The maximum number of requests that will be served by each
+                    process spawned by the mod-wsgi daemon before it is
+                    replaced by a new process. Defaults to %d.
+                    """ % self.mod_wsgi_daemon_maximum_requests,
+                default = self.mod_wsgi_daemon_maximum_requests
+            )
+
+            parser.mod_wsgi_group.add_argument("--mod-wsgi-process-group",
+                help = """
+                    The name of the process group for mod-wsgi.
+                    """,
+                default = self.mod_wsgi_process_group
+            )
+
+            parser.mod_wsgi_group.add_argument("--mod-wsgi-application-group",
+                help = """
+                    The name of the application group for mod-wsgi.
+                    """,
+                default = self.mod_wsgi_application_group
             )
 
         def __call__(self):
@@ -846,6 +1269,12 @@ class Installer(object):
 
         def init_config(self):
 
+            # Apply per-environment defaults
+            for setting, default in \
+            self.environments[self.environment].iteritems():
+                if getattr(self, setting) is None:
+                    setattr(self, setting, default)
+
             if not self.woost_version_specifier:
                 release = self.woost_releases[self.woost_version]
                 next_release = (release[0], release[1] + 1)
@@ -861,7 +1290,10 @@ class Installer(object):
             self.flat_website_alias = self.alias.lower().replace(".", "_")
 
             if self.workspace is None:
-                self.workspace = os.environ["WORKSPACE"]
+                if self.dedicated_user:
+                    self.workspace = "/home/" + self.dedicated_user
+                else:
+                    self.workspace = os.environ["WORKSPACE"]
 
             if self.installation_id is None:
                 self.installation_id = (
@@ -883,10 +1315,26 @@ class Installer(object):
                 self.vhost_name = self.flat_website_alias
 
             if not self.root_dir:
-                self.root_dir = os.path.join(self.workspace, self.alias.lower())
+                self.root_dir = os.path.join(
+                    self.workspace,
+                    "src" if self.dedicated_user else self.alias.lower()
+                )
 
             if not self.virtual_env_dir:
-                self.virtual_env_dir = self.root_dir
+                if self.dedicated_user:
+                    self.virtual_env_dir = os.path.join(
+                        self.workspace,
+                        "vpython"
+                    )
+                else:
+                    self.virtual_env_dir = self.root_dir
+
+            self.python_lib_path = os.path.join(
+                self.virtual_env_dir,
+                "lib",
+                "python2.7",
+                "site-packages"
+            )
 
             if not self.project_env_script:
                 self.project_env_script = os.path.join(
@@ -923,7 +1371,7 @@ class Installer(object):
             # Cocktail paths
             if not self.cocktail_outer_dir:
                 self.cocktail_outer_dir = os.path.join(
-                    self.virtual_env_dir,
+                    self.root_dir,
                     "cocktail"
                 )
 
@@ -936,7 +1384,7 @@ class Installer(object):
             # Woost paths
             if not self.woost_outer_dir:
                 self.woost_outer_dir = os.path.join(
-                    self.virtual_env_dir,
+                    self.root_dir,
                     "woost"
                 )
 
@@ -949,7 +1397,7 @@ class Installer(object):
             # Project paths
             if not self.project_outer_dir:
                 self.project_outer_dir = os.path.join(
-                    self.virtual_env_dir,
+                    self.root_dir,
                     self.website.lower()
                 )
 
@@ -968,6 +1416,9 @@ class Installer(object):
             if self.woost_version >= "nethack":
                 self.empty_project_folders.append(["static", "resources"])
 
+            # ZEO service
+            self.zeo_service_name = self.alias + "-zeo"
+
             # Apache configuration
             self.apache_vhost_file = (
                 "/etc/apache2/sites-available/"
@@ -979,7 +1430,50 @@ class Installer(object):
                 self.apache_vhost_template = self.apache_2_4_vhost_template
                 self.apache_vhost_file += ".conf"
             else:
+                if self.deployment_scheme == "mod_wsgi":
+                    sys.stderr.write(
+                        "Deployment with mod_wsgi requires Apache 2.4\n"
+                    )
+                    sys.exit(1)
                 self.apache_vhost_template = self.apache_2_vhost_template
+
+            self.apache_vhost_template = self.apache_vhost_template.replace(
+                "==SETUP-INCLUDE_VHOST_REDIRECTION_RULES==",
+                "".join(
+                    rule
+                    for rule, condition in self.vhost_redirection_rules
+                    if condition(self)
+                )
+            )
+
+            # Mod WSGI
+            if self.deployment_scheme == "mod_wsgi":
+
+                if not self.mod_wsgi_daemon_name:
+                    self.mod_wsgi_daemon_name = self.alias
+
+                if not self.mod_wsgi_daemon_display_name:
+                    self.mod_wsgi_daemon_display_name = self.alias
+
+                if not self.mod_wsgi_daemon_user:
+                    self.mod_wsgi_daemon_user = \
+                        self.dedicated_user or getpass.getuser()
+
+                if not self.mod_wsgi_daemon_group:
+                    self.mod_wsgi_daemon_group = self.mod_wsgi_daemon_user
+
+                if not self.mod_wsgi_daemon_python_eggs:
+                    self.mod_wsgi_daemon_python_eggs = os.path.join(
+                        "/home",
+                        self.mod_wsgi_daemon_user,
+                        ".python-eggs"
+                    )
+
+                if not self.mod_wsgi_process_group:
+                    self.mod_wsgi_process_group = self.alias
+
+                if not self.mod_wsgi_application_group:
+                    self.mod_wsgi_application_group = self.alias
 
             # Terminal profile / launcher
             if not self.terminal_profile:
@@ -1023,6 +1517,12 @@ class Installer(object):
                 "/bin/bash --init-file " + self.launcher_tab_script
             )
 
+            self.launcher_tabs = [
+                (key, cmd)
+                for key, cmd, condition in self.launcher_tabs
+                if condition(self)
+            ]
+
             self.launcher_terminal_tab_parameters = u"\\\n\t".join(
                 (
                     '--tab --profile %s --command="$LAUNCHER/tab-%s"'
@@ -1033,13 +1533,13 @@ class Installer(object):
 
             if not self.launcher_dir:
                 self.launcher_dir = os.path.join(
-                    self.virtual_env_dir,
+                    self.root_dir,
                     "launcher"
                 )
 
             if not self.desktop_file:
                 self.desktop_file = os.path.join(
-                    os.path.expanduser("~"),
+                    os.path.expanduser("~" + (self.dedicated_user or "")),
                     ".local",
                     "share",
                     "applications",
@@ -1061,6 +1561,55 @@ class Installer(object):
             except AttributeError:
                 raise KeyError("Undefined variable: %s" % match.group(0))
 
+        def become_dedicated_user(self):
+
+            if self.dedicated_user:
+
+                if not self.installer._user_is_root():
+                    sys.stderr.write(
+                        "Configuring a dedicated user for the project requires "
+                        "root access\n"
+                    )
+                    sys.exit(1)
+
+                self.installer.heading("Setting up the dedicated user")
+
+                # Create the user, if necessary
+                try:
+                    user_info = getpwnam(self.dedicated_user)
+                except KeyError:
+                    is_new = True
+                    self.installer._sudo(
+                        self.useradd_script,
+                        "-m", # Create the home directory
+                        "-U", # Create a group for the user
+                        self.dedicated_user
+                    )
+                    user_info = getpwnam(self.dedicated_user)
+                else:
+                    is_new = False
+
+                # Change the active user
+                os.setegid(user_info.pw_gid)
+                os.seteuid(user_info.pw_uid)
+                os.environ["USER"] = self.dedicated_user
+                os.environ["HOME"] = "/home/" + self.dedicated_user
+
+                if is_new:
+                    home = os.path.join("/home", self.dedicated_user)
+                    bash_aliases = os.path.join(home, ".bash_aliases")
+                    template = self.dedicated_user_bash_aliases_template
+                    with open(bash_aliases, "w") as file:
+                        file.write(self.process_template(template))
+
+        def create_project_directories(self):
+
+            if not os.path.exists(self.workspace):
+                os.mkdir(self.workspace)
+
+            if not os.path.exists(self.root_dir):
+                os.mkdir(self.root_dir)
+
         def create_virtual_environment(self):
 
             self.installer.heading(
@@ -1075,14 +1624,17 @@ class Installer(object):
                 from virtualenv import create_environment
 
             # Remove the previous virtual environment
-            if os.path.exists(self.virtual_env_dir):
+            if any(
+                os.path.exists(os.path.join(self.virtual_env_dir, subfolder))
+                for subfolder in ("bin", "include", "lib", "local", "share")
+            ):
                 if not self.recreate_env:
                     self.installer.message("Preserving the existing environment")
                     return
 
                 self.installer.message("Deleting the current environment")
 
-                for dir in "bin", "include", "lib", "local":
+                for dir in "bin", "include", "lib", "local", "share":
                     old_dir = os.path.join(self.virtual_env_dir, dir)
                     if os.path.exists(old_dir):
                         shutil.rmtree(old_dir)
@@ -1166,8 +1718,6 @@ class Installer(object):
 
             # Clone and setup woost
             self.installer.heading("Installing woost")
-            self.woost_outer_dir = \
-                os.path.join(self.virtual_env_dir, "woost")
 
             if not os.path.exists(
                 os.path.join(self.woost_outer_dir, ".hg")
@@ -1213,7 +1763,9 @@ class Installer(object):
                 )
             ):
                 self.installer._exec(
-                    "hg", "clone", self.source_installation, self.project_outer_dir
+                    "hg", "clone",
+                    os.path.join(self.source_installation, self.website.lower()),
+                    self.project_outer_dir
                 )
 
             # Create the package structure
@@ -1306,6 +1858,27 @@ class Installer(object):
                     "hg", "revert", "--all", "--no-backup",
                     "-R", self.project_outer_dir
                 )
+
+        def write_project_settings(self):
+
+            self.installer.heading("Writing project settings")
+            settings_script = os.path.join(self.project_dir, "settings.py")
+
+            with open(settings_script, "w") as file:
+                template = (
+                    self.settings_template.replace(
+                        "==SETUP-INCLUDE_CHERRYPY_GLOBAL_CONFIG==",
+                        (",\n" + " " * 8).join(
+                            self.cherrypy_global_config
+                            + self.cherrypy_env_global_config
+                        )
+                    )
+                    + "\n"
+                    + self.installer.normalize_indent(
+                        "".join(self.settings_template_tail)
+                    )
+                )
+                file.write(self.process_template(template))
 
         def install_website(self):
             self.installer.heading("Configuring the website's Python package")
@@ -1415,10 +1988,45 @@ class Installer(object):
                     % self.package
                 )
 
+        def configure_zeo_service(self):
+
+            if self.zodb_deployment_scheme == "zeo_service":
+
+                self.installer.heading(
+                    "Installing a service for the ZEO database"
+                )
+
+                if not self.zeo_service_user:
+                    self.zeo_service_user = \
+                        self.dedicated_user or getpass.getuser()
+
+                try:
+                    self.installer._stop_service(self.zeo_service_name)
+                except OSError:
+                    pass
+
+                self.installer._create_service(
+                    self.zeo_service_name,
+                    self.get_zeo_service_script()
+                )
+
+                self.installer._start_service(self.zeo_service_name)
+
+        def get_zeo_service_script(self):
+            return self.process_template(self.zeo_service_script_template)
+
         def configure_apache(self):
 
             if self.deployment_scheme == "cherrypy":
                 return
+
+            if self.deployment_scheme == "mod_wsgi":
+                if not os.path.exists(self.mod_wsgi_daemon_python_eggs):
+                    self.installer.heading(
+                        "Creating and securing the eggs folder for mod_wsgi"
+                    )
+                    os.mkdir(self.mod_wsgi_daemon_python_eggs)
+                    os.chmod(self.mod_wsgi_daemon_python_eggs, 0755)
 
             self.installer.heading("Configuring the site's Apache virtual host")
 
@@ -1429,10 +2037,14 @@ class Installer(object):
             self.installer._sudo("a2ensite", self.vhost_name)
             self.installer._sudo("service", "apache2", "restart")
 
-            # TODO: mod_wsgi
-
         def get_apache_vhost_config(self):
-            return self.process_template(self.apache_vhost_template)
+
+            template = self.apache_vhost_template
+
+            if self.deployment_scheme == "mod_wsgi":
+                template += u"\n" + self.mod_wsgi_vhost_template
+
+            return self.process_template(template)
 
         def create_mercurial_repository(self):
 
@@ -1460,11 +2072,15 @@ class Installer(object):
                 cwd = self.project_outer_dir
             )
 
-            self.installer._exec(
+            commit_command = [
                 "hg", "commit", "-m",
                 self.process_template(self.first_commit_message),
-                cwd = self.project_outer_dir
-            )
+            ]
+
+            if self.mercurial_user:
+                commit_command.extend(["--user", self.mercurial_user])
+
+            self.installer._exec(*commit_command, cwd = self.project_outer_dir)
 
         def get_mercurial_ignore_file_contents(self):
             return u"\n".join(
@@ -1515,8 +2131,6 @@ class Installer(object):
 
         def create_launcher(self):
 
-            from PIL import Image
-
             if self.launcher == "no":
                 return
 
@@ -1533,6 +2147,14 @@ class Installer(object):
                     raise OSError(
                         "Can't install a desktop launcher without "
                         "gnome-terminal"
+                    )
+                else:
+                    return
+
+            if self.dedicated_user:
+                if self.launcher == "yes":
+                    raise OSError(
+                        "Can't install a desktop launcher for a dedicated user"
                     )
                 else:
                     return
@@ -1638,6 +2260,9 @@ class Installer(object):
                 os.chmod(tab_file_path, 0774)
 
             # Desktop file
+            desktop_file_path = os.path.dirname(self.desktop_file)
+            self.installer._exec("mkdir", "-p", desktop_file_path)
+
             with open(self.desktop_file, "w") as f:
                 f.write(self.process_template(self.desktop_file_template))
             os.chmod(self.desktop_file, 0774)
@@ -1706,7 +2331,6 @@ class Installer(object):
                     """,
                 default = self.base_id
             )
-
 
     class CopyCommand(InstallCommand):
 
