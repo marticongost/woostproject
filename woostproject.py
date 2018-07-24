@@ -1240,7 +1240,7 @@ class Installer(object):
                         """
                         Defaults to ~/logs/apache/access.log when deploying
                         with a dedicated user, and to
-                        /var/log/apache2/{alias}-access.log otherwise.
+                        /var/log/apache2/ALIAS-access.log otherwise.
                         """
                     ),
                 default = self.apache_access_log
@@ -1250,9 +1250,9 @@ class Installer(object):
                 "--apache-log-format",
                 help = """
                     Sets the format for the access log of the Apache web server.
-                    Defaults to %s.
+                    Defaults to '%s'.
                     """
-                    % self.apache_log_format,
+                    % self.apache_log_format.replace("%", "%%"),
                 default = self.apache_log_format
             )
 
@@ -1286,7 +1286,7 @@ class Installer(object):
                         """
                         Defaults to ~/logs/apache2/app-access.log when
                         deploying with a dedicated user, and to
-                        /var/log/apache2/{alias}-app-access.log otherwise.
+                        /var/log/apache2/ALIAS-app-access.log otherwise.
                         """
                     ),
                 default = self.mod_wsgi_access_log
@@ -1317,7 +1317,7 @@ class Installer(object):
                         """
                         Defaults to ~/logs/apache/app-error.log when deploying
                         with a dedicated user, and to
-                        /var/log/apache2/{alias}-app-error.log otherwise.
+                        /var/log/apache2/ALIAS-app-error.log otherwise.
                         """
                     ),
                 default = self.apache_error_log
