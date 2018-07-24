@@ -1278,7 +1278,8 @@ class Installer(object):
             # Apply per-environment defaults
             for setting, default in \
             self.environments[self.environment].iteritems():
-                setattr(self, setting, default)
+                if getattr(self, setting, None) is None:
+                    setattr(self, setting, default)
 
             if not self.woost_version_specifier:
                 release = self.woost_releases[self.woost_version]
