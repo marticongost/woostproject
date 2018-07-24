@@ -588,6 +588,44 @@ class Installer(object):
                 templates.get_loader().cache.updatable = False
                 """,
                 lambda cmd: cmd.environment == "production"
+            ),
+            (
+                """
+                # Cache
+                from cocktail.caching import RESTCacheStorage
+                cache_storage = RESTCacheStorage("http://localhost:--SETUP-CACHE_SERVER_PORT--")
+                app.cache.storage = cache_storage
+                app.cache.verbose = True
+
+                from cocktail.html import rendering_cache
+                rendering_cache.storage = cache_storage
+                rendering_cache.verbose = True
+                """,
+                lambda cmd: (
+                    cmd.cache_enabled
+                    and (
+                        cmd.environment != "development"
+                        or cmd.deployment_scheme == "mod_wsgi"
+                    )
+                )
+            ),
+            (
+                """
+                # Cache
+                from cocktail.caching import RESTCacheStorage
+                cache_storage = RESTCacheStorage("http://localhost:--SETUP-CACHE_SERVER_PORT--")
+                app.cache.storage = cache_storage
+                app.cache.verbose = True
+
+                from cocktail.html import rendering_cache
+                rendering_cache.storage = cache_storage
+                rendering_cache.verbose = True
+                """,
+                lambda cmd: (
+                    cmd.cache_enabled
+                    and cmd.environment == "development"
+                    and cmd.deployment_scheme != "mod_wsgi"
+                )
             )
         ]
 
@@ -767,6 +805,40 @@ class Installer(object):
         mod_wsgi_process_group = None
         mod_wsgi_application_group = None
 
+        cache_enabled = False
+        cache_server_port = None
+        cache_server_threads = 20
+        cache_memory_limit = "128M"
+
+        cache_server_vhost_template = r"""
+            # cache server
+            Listen --SETUP-CACHE_SERVER_PORT--
+
+            <VirtualHost localhost:--SETUP-CACHE_SERVER_PORT-->
+
+                ServerName localhost
+                DocumentRoot --SETUP-STATIC_DIR--
+
+                WSGIDaemonProcess --SETUP-MOD_WSGI_DAEMON_NAME---cache \
+                    user=--SETUP-MOD_WSGI_DAEMON_USER-- \
+                    group=--SETUP-MOD_WSGI_DAEMON_GROUP-- \
+                    processes=1 \
+                    threads=--SETUP-CACHE_SERVER_THREADS-- \
+                    display-name=--SETUP-MOD_WSGI_DAEMON_DISPLAY_NAME---cache \
+                    python-path=--SETUP-PYTHON_LIB_PATH-- \
+                    python-eggs=--SETUP-MOD_WSGI_DAEMON_PYTHON_EGGS--
+
+                WSGIProcessGroup --SETUP-MOD_WSGI_PROCESS_GROUP---cache
+                WSGIApplicationGroup --SETUP-MOD_WSGI_APPLICATION_GROUP---cache
+                WSGIScriptAlias / --SETUP-PROJECT_SCRIPTS_DIR--/cacheserver.py
+
+                <Directory --SETUP-PROJECT_SCRIPTS_DIR-->
+                    Require all granted
+                </Directory>
+
+            </VirtualHost>
+            """
+
         terminal_profile = None
         terminal_profile_settings = {}
 
@@ -795,6 +867,20 @@ class Installer(object):
                 bash --init-file --SETUP-LAUNCHER_TAB_SCRIPT--
                 """,
                 lambda cmd: cmd.deployment_scheme != "mod_wsgi"
+            ),
+            (
+                "cache",
+                """
+                #!/bin/bash
+                export TAB_TITLE=Cache server
+                export TAB_COMMAND='python cacheserver.py'
+                cd --SETUP-PROJECT_SCRIPTS_DIR--
+                bash --init-file --SETUP-LAUNCHER_TAB_SCRIPT--
+                """,
+                lambda cmd: (
+                    cmd.cache_enabled
+                    and cmd.deployment_scheme != "mod_wsgi"
+                )
             ),
             (
                 "cocktail",
@@ -1251,6 +1337,57 @@ class Installer(object):
                 default = self.mod_wsgi_application_group
             )
 
+            parser.cache_group = parser.add_argument_group(
+                "Cache",
+                "Setup content caching."
+            )
+
+            parser.cache_group.add_argument(
+                "--cache-enabled",
+                help =
+                    """
+                    Indicates if the project should enable content caching.
+                    %s by default.
+                    """ % (
+                        "Enabled" if self.cache_enabled else "Disabled"
+                    ),
+                action = "store_true",
+                default = self.cache_enabled
+            )
+
+            parser.cache_group.add_argument(
+                "--cache-server-port",
+                help =
+                    "Sets the port that should be used by the cache server. "
+                    + (
+                        "Defaults to %d" % self.cache_server_port
+                        if self.cache_server_port
+                        else "If not set, a port is generated by default."
+                    ),
+                default = self.cache_server_port
+            )
+
+            parser.cache_group.add_argument(
+                "--cache-server-threads",
+                help =
+                    "Sets the number of threads to be used by the cache "
+                    "server process. Defaults to %d."
+                    % self.cache_server_threads,
+                default = self.cache_server_threads
+            )
+
+            parser.cache_group.add_argument(
+                "--cache-memory-limit",
+                help =
+                    """
+                    Sets the maximum amount of memory that can be used by the
+                    cache server. The expected format is a number followed by
+                    MB or GB suffixes. Defaults to %s.
+                    """
+                    % self.cache_memory_limit,
+                default = self.cache_memory_limit
+            )
+
         def __call__(self):
             for step in self.steps:
                 getattr(self, step)()
@@ -1368,6 +1505,10 @@ class Installer(object):
 
             if not self.zeo_port:
                 self.zeo_port = self.installer.acquire_port(self.alias + "-db")
+
+            if self.cache_enabled and not self.cache_server_port:
+                self.cache_server_port = \
+                    self.installer.acquire_port(self.alias + "-cache")
 
             self.app_server_host = "%s:%d" % (
                 self.app_server_hostname,
@@ -2054,6 +2195,9 @@ class Installer(object):
 
             if self.deployment_scheme == "mod_wsgi":
                 template += u"\n" + self.mod_wsgi_vhost_template
+
+                if self.cache_enabled:
+                    template += u"\n" + self.cache_server_vhost_template
 
             return self.process_template(template)
 
