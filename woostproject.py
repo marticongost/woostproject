@@ -681,11 +681,43 @@ class Installer(object):
             fi
         """
 
+        apache_access_log = None
+        apache_error_log = None
+        apache_log_format = r"%v:%p %h %l %u %t \"%r\" %>s %O \"%{Referer}i\" \"%{User-Agent}i\" %T/%D"
+        mod_wsgi_access_log = None
+        mod_wsgi_error_log = None
+        mod_wsgi_log_format = None
+
+        logrotate_template = """
+            ==SETUP-INCLUDE_LOG_DIR==/*.log {
+                daily
+                missingok
+                rotate 14
+                compress
+                delaycompress
+                notifempty
+                create 640 root adm
+                sharedscripts
+                postrotate
+                    if /etc/init.d/apache2 status > /dev/null ; then \
+                        /etc/init.d/apache2 reload > /dev/null; \
+                    fi;
+                endscript
+                prerotate
+                    if [ -d /etc/logrotate.d/httpd-prerotate ]; then \
+                            run-parts /etc/logrotate.d/httpd-prerotate; \
+                    fi; \
+                endscript
+            }
+            """
+
         apache_2_vhost_template = """
             <VirtualHost *:80>
 
                 ServerName --SETUP-HOSTNAME--
                 DocumentRoot --SETUP-STATIC_DIR--
+                CustomLog --SETUP-APACHE_ACCESS_LOG-- "--SETUP-APACHE_LOG_FORMAT--"
+                ErrorLog --SETUP-APACHE_ERROR_LOG--
 
                 RewriteEngine On
 
@@ -700,6 +732,24 @@ class Installer(object):
                 <Location />
                     Order deny,allow
                     Allow from all
+                </Location>
+
+            </VirtualHost>
+            """
+
+        apache_2_4_vhost_template = """
+            <VirtualHost *:80>
+
+                ServerName --SETUP-HOSTNAME--
+                DocumentRoot --SETUP-STATIC_DIR--
+                CustomLog --SETUP-APACHE_ACCESS_LOG-- "--SETUP-APACHE_LOG_FORMAT--"
+                ErrorLog --SETUP-APACHE_ERROR_LOG--
+
+                RewriteEngine On
+                ProxyPreserveHost On
+                ==SETUP-INCLUDE_VHOST_REDIRECTION_RULES==
+                <Location />
+                    Require all granted
                 </Location>
 
             </VirtualHost>
@@ -742,22 +792,6 @@ class Installer(object):
             )
         ]
 
-        apache_2_4_vhost_template = """
-            <VirtualHost *:80>
-
-                ServerName --SETUP-HOSTNAME--
-                DocumentRoot --SETUP-STATIC_DIR--
-
-                RewriteEngine On
-                ProxyPreserveHost On
-                ==SETUP-INCLUDE_VHOST_REDIRECTION_RULES==
-                <Location />
-                    Require all granted
-                </Location>
-
-            </VirtualHost>
-            """
-
         mod_wsgi_vhost_template = r"""
             # mod_wsgi application
             Listen --SETUP-PORT--
@@ -781,6 +815,9 @@ class Installer(object):
                 WSGIApplicationGroup --SETUP-MOD_WSGI_APPLICATION_GROUP--
                 WSGIImportScript --SETUP-PROJECT_SCRIPTS_DIR--/wsgi.py process-group=--SETUP-MOD_WSGI_PROCESS_GROUP-- application-group=--SETUP-MOD_WSGI_APPLICATION_GROUP--
                 WSGIScriptAlias / --SETUP-PROJECT_SCRIPTS_DIR--/wsgiapp.py
+
+                CustomLog --SETUP-MOD_WSGI_ACCESS_LOG-- "--SETUP-MOD_WSGI_LOG_FORMAT--"
+                ErrorLog --SETUP-MOD_WSGI_ERROR_LOG--
 
                 <Directory --SETUP-STATIC_DIR-->
                     Require all granted
@@ -818,6 +855,7 @@ class Installer(object):
 
                 ServerName localhost
                 DocumentRoot --SETUP-STATIC_DIR--
+                CustomLog /dev/null common
 
                 WSGIDaemonProcess --SETUP-MOD_WSGI_DAEMON_NAME---cache \
                     user=--SETUP-MOD_WSGI_DAEMON_USER-- \
@@ -1183,6 +1221,106 @@ class Installer(object):
                 "Launcher",
                 "Options to create an application launcher for desktop "
                 "environments."
+            )
+
+            parser.logging_group = parser.add_argument_group(
+                "Logging",
+                "Options to control application logs."
+            )
+
+            parser.logging_group.add_argument(
+                "--apache-access-log",
+                help = """
+                    Sets the location of the access log for the Apache
+                    webserver. %s.
+                    """
+                    % (
+                        "Defaults to " + self.apache_access_log
+                        if self.apache_access_log else
+                        """
+                        Defaults to ~/logs/apache/access.log when deploying
+                        with a dedicated user, and to
+                        /var/log/apache2/{alias}-access.log otherwise.
+                        """
+                    ),
+                default = self.apache_access_log
+            )
+
+            parser.logging_group.add_argument(
+                "--apache-log-format",
+                help = """
+                    Sets the format for the access log of the Apache web server.
+                    Defaults to %s.
+                    """
+                    % self.apache_log_format,
+                default = self.apache_log_format
+            )
+
+            parser.logging_group.add_argument(
+                "--apache-error-log",
+                help = """
+                    Sets the location of the error log for the Apache
+                    webserver. %s.
+                    """
+                    % (
+                        "Defaults to " + self.apache_error_log
+                        if self.apache_error_log else
+                        """
+                        Defaults to ~/logs/apache/error.log when deploying
+                        with a dedicated user, and to
+                        /var/log/apache2/{alias}-error.log otherwise.
+                        """
+                    ),
+                default = self.apache_error_log
+            )
+
+            parser.logging_group.add_argument(
+                "--mod-wsgi-access-log",
+                help = """
+                    Sets the location of the access log for the mod_wsgi
+                    application. %s.
+                    """
+                    % (
+                        "Defaults to " + self.mod_wsgi_access_log
+                        if self.mod_wsgi_access_log else
+                        """
+                        Defaults to ~/logs/apache2/app-access.log when
+                        deploying with a dedicated user, and to
+                        /var/log/apache2/{alias}-app-access.log otherwise.
+                        """
+                    ),
+                default = self.mod_wsgi_access_log
+            )
+
+            parser.logging_group.add_argument(
+                "--mod-wsgi-log-format",
+                help = """
+                    Sets the format of the access log for the mod_wsgi
+                    application. Defaults to %s.
+                    """
+                    % (
+                        self.mod_wsgi_log_format
+                        or "the same format set for the apache access log."
+                    ),
+                default = self.mod_wsgi_log_format
+            )
+
+            parser.logging_group.add_argument(
+                "--mod-wsgi-error-log",
+                help = """
+                    Sets the location of the error log for the mod_wsgi
+                    application. %s.
+                    """
+                    % (
+                        "Defaults to " + self.mod_wsgi_error_log
+                        if self.mod_wsgi_error_log else
+                        """
+                        Defaults to ~/logs/apache/app-error.log when deploying
+                        with a dedicated user, and to
+                        /var/log/apache2/{alias}-app-error.log otherwise.
+                        """
+                    ),
+                default = self.apache_error_log
             )
 
             parser.launcher_group.add_argument("--launcher",
@@ -1592,6 +1730,31 @@ class Installer(object):
                     if condition(self)
                 )
             )
+
+            # Apache / mod_wsgi log files
+            if self.dedicated_user:
+                log_pattern = (
+                    "/home"
+                    + self.dedicated_user
+                    + "/logs/apache2/%s.log"
+                )
+            else:
+                log_pattern = "/var/log/apache2/" + self.alias + "-%s.log"
+
+            if not self.apache_access_log:
+                self.apache_access_log = log_pattern % "access"
+
+            if not self.apache_error_log:
+                self.apache_error_log = log_pattern % "error"
+
+            if not self.mod_wsgi_access_log:
+                self.mod_wsgi_access_log = log_pattern % "app-access"
+
+            if not self.mod_wsgi_error_log:
+                self.mod_wsgi_error_log = log_pattern % "app-error"
+
+            if not self.mod_wsgi_log_format:
+                self.mod_wsgi_log_format = self.apache_log_format
 
             # Mod WSGI
             if self.deployment_scheme == "mod_wsgi":
@@ -2179,6 +2342,37 @@ class Installer(object):
                     )
                     os.mkdir(self.mod_wsgi_daemon_python_eggs)
                     os.chmod(self.mod_wsgi_daemon_python_eggs, 0755)
+
+            self.installer.heading("Configuring Apache logs")
+            log_files = [
+                self.apache_access_log,
+                self.apache_error_log
+            ]
+
+            if self.deployment_scheme == "mod_wsgi":
+                log_files.extend([
+                    self.mod_wsgi_access_log,
+                    self.mod_wsgi_error_log
+                ])
+
+            log_dirs = set(os.path.dirname(log_file) for log_file in log_files)
+
+            for log_dir in log_dirs:
+                self.installer._sudo("mkdir", "-p", log_dir)
+                self.installer._sudo("chown", "root:root", log_dir)
+                self.installer._sudo("chmod", "755", log_dir)
+
+            logrotate_config = "\n".join(
+                self.logrotate_template.replace(
+                    "==SETUP-INCLUDE_LOG_DIR==",
+                    log_dir
+                )
+                for log_dir in log_dirs if log_dir != "/var/log/apache2"
+            )
+            self.installer._sudo_write(
+                os.path.join("/etc", "logrotate.d", self.alias),
+                logrotate_config
+            )
 
             self.installer.heading("Configuring the site's Apache virtual host")
 
