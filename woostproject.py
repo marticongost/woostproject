@@ -410,6 +410,7 @@ class Installer(object):
             "setup_database",
             "copy_uploads",
             "configure_zeo_service",
+            "configure_zeo_pack",
             "configure_apache",
             "add_hostname_to_hosts_file",
             "create_mercurial_repository",
@@ -423,11 +424,13 @@ class Installer(object):
             "development": {
                 "deployment_scheme": "mod_rewrite",
                 "zodb_deployment_scheme": "zeo",
+                "zeo_pack": False,
                 "cherrypy_env_global_config": []
             },
             "production": {
                 "deployment_scheme": "mod_wsgi",
                 "zodb_deployment_scheme": "zeo_service",
+                "zeo_pack": True,
                 "cherrypy_env_global_config": [
                     '"engine.autoreload_on": False',
                     '"server.log_to_screen": False'
@@ -458,10 +461,23 @@ class Installer(object):
         deployment_scheme = None
         modify_hosts_file = False
         port = None
+
         zodb_deployment_scheme = None
         zeo_port = None
         zeo_service_user = None
         zeo_service_name = None
+        zeo_pack = None
+        zeo_pack_days = 2
+        zeo_pack_frequency = "00 04 * * *"
+        zeo_pack_template = """
+            #!/bin/bash
+            PORT=--SETUP-ZEO_PORT--
+            echo "Running zeopack on port $PORT"
+            --SETUP-VIRTUAL_ENV_DIR--/bin/zeopack -h localhost -p $PORT -d --SETUP-ZEO_PACK_DAYS--
+            echo "Done."
+            sync
+            """
+
         languages = ("en",)
         admin_email = "admin@localhost"
         admin_password = None
@@ -1217,6 +1233,51 @@ class Installer(object):
                 default = self.zeo_port
             )
 
+            serialize_zeo_pack_value = (
+                lambda value: "enabled" if value else "disabled"
+            )
+
+            parser.db_group.add_argument("--zeo-pack",
+                action = "store_true"
+            )
+
+            parser.db_group.add_argument("--no-zeo-pack",
+                help = """
+                    Enables or disables the packing of the ZODB database.
+                    Defaults to %s.
+                    """ % (
+                        serialize_zeo_pack_value(self.zeo_pack)
+                        if self.zeo_pack is not None
+                        else ", ".join(
+                            "%s (%s)" % (
+                                serialize_zeo_pack_value(defaults["zeo_pack"]),
+                                env
+                            )
+                            for env, defaults in self.environments.iteritems()
+                        )
+                    ),
+                dest = "zeo_pack",
+                action = "store_false"
+            )
+
+            parser.db_group.add_argument("--zeo-pack-frequency",
+                help = """
+                    The frequency of database packing operations, specified in
+                    crontab format. Defaults to '%s'.
+                    """ % self.zeo_pack_frequency,
+                default = self.zeo_pack_frequency
+            )
+
+            parser.db_group.add_argument("--zeo-pack-days",
+                help = """
+                    The number of days that will be retained on the database
+                    transaction journal after a pack operation. Defaults to
+                    %d.
+                    """ % self.zeo_pack_days,
+                type = int,
+                default = self.zeo_pack_days
+            )
+
             parser.launcher_group = parser.add_argument_group(
                 "Launcher",
                 "Options to create an application launcher for desktop "
@@ -1268,7 +1329,7 @@ class Installer(object):
                         """
                         Defaults to ~/logs/apache/error.log when deploying
                         with a dedicated user, and to
-                        /var/log/apache2/{alias}-error.log otherwise.
+                        /var/log/apache2/ALIAS-error.log otherwise.
                         """
                     ),
                 default = self.apache_error_log
@@ -2329,6 +2390,26 @@ class Installer(object):
 
         def get_zeo_service_script(self):
             return self.process_template(self.zeo_service_script_template)
+
+        def configure_zeo_pack(self):
+
+            if self.zeo_pack:
+
+                zeo_pack_script = os.path.join(
+                    self.project_dir,
+                    "scripts",
+                    "zeopack.sh"
+                )
+
+                with open(zeo_pack_script, "w") as f:
+                    f.write(self.process_template(self.zeo_pack_template))
+
+                os.chmod(zeo_pack_script, 0744)
+                cronjob = "%s %s" % (self.zeo_pack_frequency, zeo_pack_script)
+                self.installer._exec(
+                    "(crontab -l; echo '%s') | crontab -" % cronjob,
+                    shell = True
+                )
 
         def configure_apache(self):
 
