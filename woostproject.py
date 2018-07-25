@@ -2603,6 +2603,8 @@ class Installer(object):
 
             if self.zeo_pack:
 
+                self.installer.heading("Configuring database packing")
+
                 zeo_pack_script = os.path.join(
                     self.project_dir,
                     "scripts",
