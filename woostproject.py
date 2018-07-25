@@ -2501,7 +2501,7 @@ class Installer(object):
 
                 try:
                     self.installer._stop_service(self.zeo_service_name)
-                except OSError:
+                except subprocess.CalledProcessError:
                     pass
 
                 self.installer._create_service(
