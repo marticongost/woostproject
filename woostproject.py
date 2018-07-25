@@ -861,7 +861,7 @@ class Installer(object):
         cache_enabled = False
         cache_server_port = None
         cache_server_threads = 20
-        cache_memory_limit = "128M"
+        cache_server_memory_limit = "128M"
 
         cache_server_vhost_template = r"""
             # cache server
@@ -1576,15 +1576,15 @@ class Installer(object):
             )
 
             parser.cache_group.add_argument(
-                "--cache-memory-limit",
+                "--cache-server-memory-limit",
                 help =
                     """
                     Sets the maximum amount of memory that can be used by the
                     cache server. The expected format is a number followed by
                     MB or GB suffixes. Defaults to %s.
                     """
-                    % self.cache_memory_limit,
-                default = self.cache_memory_limit
+                    % self.cache_server_memory_limit,
+                default = self.cache_server_memory_limit
             )
 
         def __call__(self):
