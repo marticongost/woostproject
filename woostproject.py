@@ -356,7 +356,9 @@ class Installer(object):
 
         def setup_cli(self, parser):
 
-            parser.add_argument("--with-feature",
+            self.add_argument(
+                parser,
+                "--with-feature",
                 help = "Enables the specified feature.",
                 choices = list(self.features),
                 nargs = "+",
@@ -365,7 +367,9 @@ class Installer(object):
                 default = set()
             )
 
-            parser.add_argument("--without-feature",
+            self.add_argument(
+                parser,
+                "--without-feature",
                 help = "Disables the specified feature.",
                 choices = list(self.features),
                 nargs = "+",
