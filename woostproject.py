@@ -343,6 +343,8 @@ class Installer(object):
 
         # Enable all features by default
         selected_features = set(features)
+        added_features = set()
+        removed_features = set()
 
         apache_modules = [
             "rewrite",
