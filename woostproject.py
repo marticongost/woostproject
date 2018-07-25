@@ -15,6 +15,8 @@ import subprocess
 import socket
 import uuid
 import json
+import tarfile
+import base64
 from pwd import getpwnam
 from tempfile import mkdtemp
 from contextlib import contextmanager
@@ -2945,6 +2947,211 @@ class Installer(object):
             if not self.skip_uploads:
                 Installer.InstallCommand.copy_uploads(self)
 
+    class BundleCommand(CopyCommand):
+
+        name = "bundle"
+        help = "Create a self contained installer file for an existing " \
+               "project."
+        description = help
+
+        undefined_parameter = object()
+
+        output_file = "website.py"
+        compression = "bz2"
+        bundle_parameters = ["output_file", "compression"]
+        unexportable_parameters = [
+            "command",
+            "output_file",
+            "source_installation"
+        ]
+        disabled_parameters = [
+            "steps",
+            "recreate-env"
+        ]
+
+        # Warning: this must be a multiple of 3!
+        chunk_size = 8190
+
+        def add_argument(self, owner, *args, **kwargs):
+
+            # Ignore the default value for all arguments collected as
+            # defaults for the unbundle operation
+            for param in self.bundle_parameters:
+                if self._param_matches_args(param, args):
+                    break
+            else:
+                kwargs["default"] = self.undefined_parameter
+
+            Installer.CopyCommand.add_argument(
+                self,
+                owner,
+                *args,
+                **kwargs
+            )
+
+        def setup_cli(self, parser):
+
+            parser.bundle_group = parser.add_argument_group(
+                "Bundle",
+                "Options to control the generation of the installer bundle."
+            )
+
+            self.add_argument(
+                parser.bundle_group,
+                "--output-file",
+                help = "The name of the generated file. Defaults to %s."
+                    % self.output_file,
+                default = self.output_file
+            )
+
+            self.add_argument(
+                parser.bundle_group,
+                "--compression",
+                help = "The type of compression to use. Defaults to %s."
+                    % self.compression,
+                choices = ["gz", "bz2"],
+                default = self.compression
+            )
+
+            Installer.CopyCommand.setup_cli(self, parser)
+
+        def process_parameters(self, parameters):
+
+            self.bundle_defaults = {}
+
+            for key, value in parameters.iteritems():
+                if (
+                    key not in self.unexportable_parameters
+                    and value is not self.undefined_parameter
+                ):
+                    self.bundle_defaults[key] = value
+
+            Installer.CopyCommand.process_parameters(self, parameters)
+
+        def __call__(self):
+
+            with open(os.path.realpath(__file__), "r") as f:
+                installer_src = f.read()
+
+            main_pattern = 'if __name__ == "__main__":\n'
+            pos = installer_src.index(main_pattern)
+
+            self.installer.heading("Compressing bundle data")
+            temp_dir = mkdtemp()
+
+            try:
+                tar_file_path = os.path.join(temp_dir, "bundle.tar")
+                tar_file_mode = "w"
+                if self.compression:
+                    tar_file_mode += ":" + self.compression
+
+                with tarfile.open(tar_file_path, tar_file_mode) as tar_file:
+                    tar_file.add(
+                        os.path.join(
+                            self.source_installation,
+                            self.website.lower()
+                        ),
+                        arcname = self.website.lower(),
+                        recursive = True
+                    )
+
+                self.installer.heading("Generating self contained installer")
+                installer_src = installer_src[:pos]
+
+                with open(self.output_file, "w") as output_file:
+                    write = output_file.write
+                    write(installer_src)
+
+                    # Embed the whole installation into a base 64 encoded
+                    # triple string
+                    write('BUNDLE_DATA = """')
+                    with open(tar_file_path, "rb") as tar_file:
+                        while True:
+                            chunk = tar_file.read(self.chunk_size)
+                            if chunk:
+                                write(base64.b64encode(chunk))
+                            else:
+                                write('"""')
+                                break
+
+                    write('\nif __name__ == "__main__":\n')
+                    write("    installer = BundleInstaller()\n")
+
+                    for default in self.bundle_defaults.iteritems():
+                        write("    installer.unbundle.%s = %r\n" % default)
+
+                    write("    installer.run_cli()\n")
+            finally:
+                shutil.rmtree(temp_dir)
+
+
+class BundleInstaller(Installer):
+
+    def create_cli(self):
+        parser = ArgumentParser()
+        self.unbundle.setup_cli(parser)
+        return parser
+
+    def run_cli(self):
+        cli = self.create_cli()
+        args = cli.parse_args()
+        self.bootstrap()
+        self.unbundle.process_parameters(vars(args))
+        self.unbundle()
+
+    class UnbundleCommand(Installer.CopyCommand):
+        name = "unbundle"
+
+        # Warning: this must be a multiple of 4!
+        chunk_size = 10920
+
+        disabled_parameters = [
+            "website",
+            "source_installation"
+        ]
+
+        def __call__(self):
+            self.installer.heading("Extracting bundle data")
+            temp_dir = mkdtemp()
+            self.source_installation = temp_dir
+            try:
+                self.extract_bundle_data(temp_dir)
+                Installer.CopyCommand.__call__(self)
+            finally:
+                shutil.rmtree(temp_dir)
+
+        def extract_bundle_data(self, dest):
+
+            tar_file_path = os.path.join(dest, "website.tar")
+
+            with open(tar_file_path, "wb") as tar_file:
+                n = 0
+                while True:
+                    data = BUNDLE_DATA[n:n + self.chunk_size]
+                    if not data:
+                        break
+                    tar_file.write(base64.b64decode(data))
+                    n += self.chunk_size
+
+            tar_file_mode = "r"
+            if self.compression:
+                tar_file_mode += ":" + self.compression
+
+            with tarfile.open(tar_file_path, tar_file_mode) as tar_file:
+                tar_file.extractall(dest)
+
+        def import_upload(self, src, dest):
+            self._move_file(src, dest)
+
+        def import_database(self, src, dest):
+            self._move_file(src, dest)
+
+        def _move_file(self, src, dest):
+            try:
+                shutil.move(src, dest)
+            # Might have been moved already if the command failed
+            except shutil.Error:
+                pass
 
 
 class ProjectSkeleton(object):
