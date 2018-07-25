@@ -2385,7 +2385,7 @@ class Installer(object):
 
         def copy_database(self):
             self.installer.heading("Copying database")
-            shutil.copy(
+            self.import_database(
                 os.path.join(
                     self.source_installation,
                     self.website.lower(),
@@ -2472,7 +2472,7 @@ class Installer(object):
                 for file_name in os.listdir(source_folder):
                     item = os.path.join(source_folder, file_name)
                     if os.path.isfile(item):
-                        shutil.copy(item, dest_folder)
+                        self.import_upload(item, dest_folder)
 
                 # Create links for static publication
                 self._python(
@@ -2480,6 +2480,12 @@ class Installer(object):
                     "for f in File.select(): staticpublication.create_links(f)'"
                     % self.package
                 )
+
+        def import_upload(self, src, dest):
+            shutil.copy(src, dest)
+
+        def import_database(self, src, dest):
+            shutil.copy(src, dest)
 
         def configure_zeo_service(self):
 
