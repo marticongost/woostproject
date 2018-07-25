@@ -63,8 +63,7 @@ class Installer(object):
         cli = self.create_cli()
         args = cli.parse_args()
         command = self.commands[args.command]
-        for key, value in vars(args).iteritems():
-            setattr(command, key, value)
+        command.process_parameters(vars(args))
         command()
 
     def _exec(self, *args, **kwargs):
@@ -259,12 +258,31 @@ class Installer(object):
         name = None
         help = None
         description = None
+        disabled_parameters = []
 
         def __init__(self, installer):
             self.installer = installer
+            self.disabled_parameters = list(self.disabled_parameters)
+
+        def _arg_name(self, parameter):
+            return "--" + parameter.replace("_", "-")
+
+        def _param_matches_args(self, param, args):
+            return param in args or self._arg_name(param) in args
 
         def setup_cli(self, parser):
             pass
+
+        def add_argument(self, owner, *args, **kwargs):
+            for param in self.disabled_parameters:
+                if self._param_matches_args(param, args):
+                    break
+            else:
+                owner.add_argument(*args, **kwargs)
+
+        def process_parameters(self, parameters):
+            for key, value in parameters.iteritems():
+                setattr(self, key, value)
 
         def __call__(self):
             pass
@@ -1031,11 +1049,15 @@ class Installer(object):
 
         def setup_cli(self, parser):
 
-            parser.add_argument("website",
+            self.add_argument(
+                parser,
+                "website",
                 help = "The name of the website to create."
             )
 
-            parser.add_argument("--environment",
+            self.add_argument(
+                parser,
+                "--environment",
                 help = """
                     Choose between a development or a production environment.
                     This can change the defaults for several parameters, as
@@ -1047,7 +1069,9 @@ class Installer(object):
                 default = self.environment
             )
 
-            parser.add_argument("--steps",
+            self.add_argument(
+                parser,
+                "--steps",
                 help = """
                     The steps to execute. Useful to skip certain tasks when
                     ammending or fixing a previous installation. Default
@@ -1059,6 +1083,17 @@ class Installer(object):
                 default = self.steps
             )
 
+            self.add_argument(
+                parser,
+                "--recreate-env",
+                help = """
+                    If enabled, the installer will delete and recreate the Python
+                    virtual environment for the project (if one already exists).
+                    """,
+                action = "store_true",
+                default = self.recreate_env
+            )
+
             parser.loc_group = parser.add_argument_group(
                 "Location",
                 "Options controlling the naming and placement of the "
@@ -1066,7 +1101,9 @@ class Installer(object):
                 "hierarchy."
             )
 
-            parser.loc_group.add_argument("--workspace",
+            self.add_argument(
+                parser.loc_group,
+                "--workspace",
                 help = """
                     The root folder where the website should be installed. If
                     not given it defaults to the value of the WORKSPACE
@@ -1076,7 +1113,9 @@ class Installer(object):
                     """
             )
 
-            parser.loc_group.add_argument("--alias",
+            self.add_argument(
+                parser.loc_group,
+                "--alias",
                 help = """
                     If given, the website will be installed under a different
                     identifier. This is useful to install multiple copies of
@@ -1086,7 +1125,9 @@ class Installer(object):
                 default = self.alias
             )
 
-            parser.loc_group.add_argument("--package",
+            self.add_argument(
+                parser.loc_group,
+                "--package",
                 help = """
                     The fully qualified name of the Python package that will
                     contain the website. Leave blank to use the website's name
@@ -1095,7 +1136,9 @@ class Installer(object):
                 default = self.package
             )
 
-            parser.loc_group.add_argument("--dedicated-user",
+            self.add_argument(
+                parser.loc_group,
+                "--dedicated-user",
                 help = """
                     Indicates that the project should be bound to a specific
                     OS user. The user will be created, if it doesn't exist, and
@@ -1110,7 +1153,9 @@ class Installer(object):
                 "Options concerning the content and behavior of the CMS."
             )
 
-            parser.cms_group.add_argument("--installation-id",
+            self.add_argument(
+                parser.cms_group,
+                "--installation-id",
                 help = """
                     A string that uniquely identifies this instance of the
                     website. Will be used during content synchronization across
@@ -1122,7 +1167,9 @@ class Installer(object):
                 default = self.installation_id
             )
 
-            parser.cms_group.add_argument("--woost-version",
+            self.add_argument(
+                parser.cms_group,
+                "--woost-version",
                 help = """
                     The version of Woost that the website will be based on.
                     Defaults to '%s' (the latest stable version).
@@ -1136,7 +1183,9 @@ class Installer(object):
                 "Options to control the deployment of the application."
             )
 
-            parser.deployment_group.add_argument("--deployment-scheme",
+            self.add_argument(
+                parser.deployment_group,
+                "--deployment-scheme",
                 help = """
                     Choose between different deployment strategies for the
                     application. The default option is to serve the website using
@@ -1156,7 +1205,9 @@ class Installer(object):
                 default = self.deployment_scheme
             )
 
-            parser.deployment_group.add_argument("--hostname",
+            self.add_argument(
+                parser.deployment_group,
+                "--hostname",
                 help = """
                     The hostname that the website should respond to. Leaving
                     it blank will default to "website.localhost" (where
@@ -1165,7 +1216,9 @@ class Installer(object):
                 default = self.hostname
             )
 
-            parser.deployment_group.add_argument("--modify-hosts-file",
+            self.add_argument(
+                parser.deployment_group,
+                "--modify-hosts-file",
                 help = """
                     Activating this flag will modify the system "hosts" file to
                     make the given hostname map to the local host. This can be
@@ -1176,7 +1229,9 @@ class Installer(object):
                 default = self.modify_hosts_file
             )
 
-            parser.deployment_group.add_argument("--port",
+            self.add_argument(
+                parser.deployment_group,
+                "--port",
                 help = """
                     The port that the application server will listen on. Leave
                     blank to obtain an incremental port.
@@ -1190,7 +1245,9 @@ class Installer(object):
                 "Options controlling the behavior of the database."
             )
 
-            parser.db_group.add_argument("--zodb-deployment-scheme",
+            self.add_argument(
+                parser.db_group,
+                "--zodb-deployment-scheme",
                 help = """
                     Indicates how to serve the application's ZODB database.
                     'zeo_service' configures a script to launch a ZEO server as
@@ -1210,7 +1267,9 @@ class Installer(object):
                 default = self.zodb_deployment_scheme
             )
 
-            parser.db_group.add_argument("--zeo-service-user",
+            self.add_argument(
+                parser.db_group,
+                "--zeo-service-user",
                 help = """
                     Sets the user that should run the ZEO server when
                     configured to run as a service
@@ -1224,7 +1283,9 @@ class Installer(object):
                 default = self.zeo_service_user
             )
 
-            parser.db_group.add_argument("--zeo-port",
+            self.add_argument(
+                parser.db_group,
+                "--zeo-port",
                 help = """
                     The port that the ZEO server will listen on. Leave
                     blank to obtain an incremental port.
@@ -1237,11 +1298,15 @@ class Installer(object):
                 lambda value: "enabled" if value else "disabled"
             )
 
-            parser.db_group.add_argument("--zeo-pack",
+            self.add_argument(
+                parser.db_group,
+                "--zeo-pack",
                 action = "store_true"
             )
 
-            parser.db_group.add_argument("--no-zeo-pack",
+            self.add_argument(
+                parser.db_group,
+                "--no-zeo-pack",
                 help = """
                     Enables or disables the packing of the ZODB database.
                     Defaults to %s.
@@ -1260,7 +1325,9 @@ class Installer(object):
                 action = "store_false"
             )
 
-            parser.db_group.add_argument("--zeo-pack-frequency",
+            self.add_argument(
+                parser.db_group,
+                "--zeo-pack-frequency",
                 help = """
                     The frequency of database packing operations, specified in
                     crontab format. Defaults to '%s'.
@@ -1268,7 +1335,9 @@ class Installer(object):
                 default = self.zeo_pack_frequency
             )
 
-            parser.db_group.add_argument("--zeo-pack-days",
+            self.add_argument(
+                parser.db_group,
+                "--zeo-pack-days",
                 help = """
                     The number of days that will be retained on the database
                     transaction journal after a pack operation. Defaults to
@@ -1278,18 +1347,13 @@ class Installer(object):
                 default = self.zeo_pack_days
             )
 
-            parser.launcher_group = parser.add_argument_group(
-                "Launcher",
-                "Options to create an application launcher for desktop "
-                "environments."
-            )
-
             parser.logging_group = parser.add_argument_group(
                 "Logging",
                 "Options to control application logs."
             )
 
-            parser.logging_group.add_argument(
+            self.add_argument(
+                parser.logging_group,
                 "--apache-access-log",
                 help = """
                     Sets the location of the access log for the Apache
@@ -1307,7 +1371,8 @@ class Installer(object):
                 default = self.apache_access_log
             )
 
-            parser.logging_group.add_argument(
+            self.add_argument(
+                parser.logging_group,
                 "--apache-log-format",
                 help = """
                     Sets the format for the access log of the Apache web server.
@@ -1317,7 +1382,8 @@ class Installer(object):
                 default = self.apache_log_format
             )
 
-            parser.logging_group.add_argument(
+            self.add_argument(
+                parser.logging_group,
                 "--apache-error-log",
                 help = """
                     Sets the location of the error log for the Apache
@@ -1335,7 +1401,8 @@ class Installer(object):
                 default = self.apache_error_log
             )
 
-            parser.logging_group.add_argument(
+            self.add_argument(
+                parser.logging_group,
                 "--mod-wsgi-access-log",
                 help = """
                     Sets the location of the access log for the mod_wsgi
@@ -1353,7 +1420,8 @@ class Installer(object):
                 default = self.mod_wsgi_access_log
             )
 
-            parser.logging_group.add_argument(
+            self.add_argument(
+                parser.logging_group,
                 "--mod-wsgi-log-format",
                 help = """
                     Sets the format of the access log for the mod_wsgi
@@ -1366,7 +1434,8 @@ class Installer(object):
                 default = self.mod_wsgi_log_format
             )
 
-            parser.logging_group.add_argument(
+            self.add_argument(
+                parser.logging_group,
                 "--mod-wsgi-error-log",
                 help = """
                     Sets the location of the error log for the mod_wsgi
@@ -1384,7 +1453,15 @@ class Installer(object):
                 default = self.apache_error_log
             )
 
-            parser.launcher_group.add_argument("--launcher",
+            parser.launcher_group = parser.add_argument_group(
+                "Launcher",
+                "Options to create an application launcher for desktop "
+                "environments."
+            )
+
+            self.add_argument(
+                parser.launcher_group,
+                "--launcher",
                 help = """
                     Indicates if the installer should create a desktop launcher
                     for the website. The launcher will start a terminal window
@@ -1396,7 +1473,9 @@ class Installer(object):
                 default = self.launcher
             )
 
-            parser.launcher_group.add_argument("--launcher-icon",
+            self.add_argument(
+                parser.launcher_group,
+                "--launcher-icon",
                 help = """
                     Path to the icon that should be used by the launcher. Can
                     be given multiple times, to provide icons in different
@@ -1414,7 +1493,9 @@ class Installer(object):
                 "Options to create a Mercurial repository for the project."
             )
 
-            parser.mercurial_group.add_argument("--mercurial",
+            self.add_argument(
+                parser.mercurial_group,
+                "--mercurial",
                 help = """
                     If enabled, the installer will automatically create a
                     mercurial repository for the new website.
@@ -1423,7 +1504,9 @@ class Installer(object):
                 default = self.mercurial
             )
 
-            parser.mercurial_group.add_argument("--mercurial-user",
+            self.add_argument(
+                parser.mercurial_group,
+                "--mercurial-user",
                 help = """
                     The user used to make the project's first commit. Defaults
                     to %s.
@@ -1435,22 +1518,15 @@ class Installer(object):
                 default = self.mercurial_user
             )
 
-            parser.add_argument("--recreate-env",
-                help = """
-                    If enabled, the installer will delete and recreate the Python
-                    virtual environment for the project (if one already exists).
-                    """,
-                action = "store_true",
-                default = self.recreate_env
-            )
-
             parser.mod_wsgi_group = parser.add_argument_group(
                 "mod_wsgi",
                 "Parameters for mod_wsgi deployments "
                 "(--deployment-scheme=mod_wsgi)."
             )
 
-            parser.mod_wsgi_group.add_argument("--mod-wsgi-daemon-name",
+            self.add_argument(
+                parser.mod_wsgi_group,
+                "--mod-wsgi-daemon-name",
                 help = """
                     The name of the daemon spawned by mod-wsgi. Defaults to the
                     project's alias.
@@ -1458,7 +1534,9 @@ class Installer(object):
                 default = self.mod_wsgi_daemon_name
             )
 
-            parser.mod_wsgi_group.add_argument("--mod-wsgi-daemon-user",
+            self.add_argument(
+                parser.mod_wsgi_group,
+                "--mod-wsgi-daemon-user",
                 help = """
                     The OS user that the daemon spawned by mod-wsgi will run
                     under. Defaults to %s.
@@ -1470,7 +1548,9 @@ class Installer(object):
                 default = self.mod_wsgi_daemon_user
             )
 
-            parser.mod_wsgi_group.add_argument("--mod-wsgi-daemon-group",
+            self.add_argument(
+                parser.mod_wsgi_group,
+                "--mod-wsgi-daemon-group",
                 help = """
                     The OS group that the daemon spawned by mod-wsgi will run
                     under. Defaults to %s.
@@ -1481,7 +1561,9 @@ class Installer(object):
                 default = self.mod_wsgi_daemon_group
             )
 
-            parser.mod_wsgi_group.add_argument("--mod-wsgi-daemon-processes",
+            self.add_argument(
+                parser.mod_wsgi_group,
+                "--mod-wsgi-daemon-processes",
                 help = """
                     The number of processes available to the daemon spawned by
                     mod-wsgi. Defaults to %d.
@@ -1489,7 +1571,9 @@ class Installer(object):
                 default = self.mod_wsgi_daemon_processes
             )
 
-            parser.mod_wsgi_group.add_argument("--mod-wsgi-daemon-threads",
+            self.add_argument(
+                parser.mod_wsgi_group,
+                "--mod-wsgi-daemon-threads",
                 help = """
                     The number of threads available to each process of the
                     daemon spawned by mod-wsgi. Defaults to %d.
@@ -1497,7 +1581,9 @@ class Installer(object):
                 default = self.mod_wsgi_daemon_threads
             )
 
-            parser.mod_wsgi_group.add_argument("--mod-wsgi-daemon-display-name",
+            self.add_argument(
+                parser.mod_wsgi_group,
+                "--mod-wsgi-daemon-display-name",
                 help = """
                     The display name for the processes of the daemon spawned
                     by mod-wsgi. Defaults to the project's alias.
@@ -1505,7 +1591,9 @@ class Installer(object):
                 default = self.mod_wsgi_daemon_display_name
             )
 
-            parser.mod_wsgi_group.add_argument("--mod-wsgi-daemon-python_eggs",
+            self.add_argument(
+                parser.mod_wsgi_group,
+                "--mod-wsgi-daemon-python_eggs",
                 help = """
                     A path to a directory that will be used by mod-wsgi to
                     store Python eggs.
@@ -1513,7 +1601,9 @@ class Installer(object):
                 default = self.mod_wsgi_daemon_python_eggs
             )
 
-            parser.mod_wsgi_group.add_argument("--mod-wsgi-daemon-maximum-requests",
+            self.add_argument(
+                parser.mod_wsgi_group,
+                "--mod-wsgi-daemon-maximum-requests",
                 help = """
                     The maximum number of requests that will be served by each
                     process spawned by the mod-wsgi daemon before it is
@@ -1522,14 +1612,18 @@ class Installer(object):
                 default = self.mod_wsgi_daemon_maximum_requests
             )
 
-            parser.mod_wsgi_group.add_argument("--mod-wsgi-process-group",
+            self.add_argument(
+                parser.mod_wsgi_group,
+                "--mod-wsgi-process-group",
                 help = """
                     The name of the process group for mod-wsgi.
                     """,
                 default = self.mod_wsgi_process_group
             )
 
-            parser.mod_wsgi_group.add_argument("--mod-wsgi-application-group",
+            self.add_argument(
+                parser.mod_wsgi_group,
+                "--mod-wsgi-application-group",
                 help = """
                     The name of the application group for mod-wsgi.
                     """,
@@ -1541,7 +1635,8 @@ class Installer(object):
                 "Setup content caching."
             )
 
-            parser.cache_group.add_argument(
+            self.add_argument(
+                parser.cache_group,
                 "--cache-enabled",
                 help =
                     """
@@ -1554,7 +1649,8 @@ class Installer(object):
                 default = self.cache_enabled
             )
 
-            parser.cache_group.add_argument(
+            self.add_argument(
+                parser.cache_group,
                 "--cache-server-port",
                 help =
                     "Sets the port that should be used by the cache server. "
@@ -1566,7 +1662,8 @@ class Installer(object):
                 default = self.cache_server_port
             )
 
-            parser.cache_group.add_argument(
+            self.add_argument(
+                parser.cache_group,
                 "--cache-server-threads",
                 help =
                     "Sets the number of threads to be used by the cache "
@@ -1575,7 +1672,8 @@ class Installer(object):
                 default = self.cache_server_threads
             )
 
-            parser.cache_group.add_argument(
+            self.add_argument(
+                parser.cache_group,
                 "--cache-server-memory-limit",
                 help =
                     """
@@ -2723,7 +2821,9 @@ class Installer(object):
 
             Installer.InstallCommand.setup_cli(self, parser)
 
-            parser.cms_group.add_argument("--language", "-l",
+            self.add_argument(
+                parser.cms_group,
+                "--language", "-l",
                 help = """
                     The list of languages for the website. Languages should be
                     indicated using two letter ISO codes.
@@ -2734,17 +2834,23 @@ class Installer(object):
                 default = self.languages
             )
 
-            parser.cms_group.add_argument("--admin-email",
+            self.add_argument(
+                parser.cms_group,
+                "--admin-email",
                 help = "The e-mail for the administrator account.",
                 default = self.admin_email
             )
 
-            parser.cms_group.add_argument("--admin-password",
+            self.add_argument(
+                parser.cms_group,
+                "--admin-password",
                 help = "The password for the administrator account.",
                 default = self.admin_password
             )
 
-            parser.cms_group.add_argument("--extension", "-e",
+            self.add_argument(
+                parser.cms_group,
+                "--extension", "-e",
                 help = """The list of extensions to enable.""",
                 dest = "extensions",
                 metavar = "EXT_NAME",
@@ -2752,7 +2858,9 @@ class Installer(object):
                 default = self.extensions
             )
 
-            parser.cms_group.add_argument("--base-id",
+            self.add_argument(
+                parser.cms_group,
+                "--base-id",
                 help = """
                     If set, the incremental ID of objects created by the
                     installer will start at the given value. Useful to prevent
@@ -2774,12 +2882,15 @@ class Installer(object):
 
             Installer.InstallCommand.setup_cli(self, parser)
 
-            parser.add_argument("source_installation",
+            self.add_argument(
+                parser,
+                "source_installation",
                 help = """
-                    Path to an existing installation of the project that should
-                    be used to obtain the database, uploads and source code for
-                    the project.
-                    """
+                    Path to an existing installation of the project that
+                    should be used to obtain the database, uploads and
+                    source code for the project.
+                    """,
+                default = self.source_installation
             )
 
             parser.copy_group = parser.add_argument_group(
@@ -2787,12 +2898,16 @@ class Installer(object):
                 "Options to control the copy process."
             )
 
-            parser.copy_group.add_argument("--skip-database",
+            self.add_argument(
+                parser.copy_group,
+                "--skip-database",
                 help = """Don't copy the database.""",
                 action = "store_true"
             )
 
-            parser.copy_group.add_argument("--skip-uploads",
+            self.add_argument(
+                parser.copy_group,
+                "--skip-uploads",
                 help = u"""Don't copy uploaded files.""",
                 action = "store_true"
             )
