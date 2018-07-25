@@ -1065,8 +1065,15 @@ class Installer(object):
         mercurial_user = None
         first_commit_message = u"Created the project."
 
-        def _python(self, command):
-            self.installer._exec(self.python_bin, "-c", command)
+        def _python(self, source):
+            temp_dir = mkdtemp()
+            try:
+                python_file = os.path.join(temp_dir, "module.py")
+                with open(python_file, "w") as file:
+                    file.write(self.installer.normalize_indent(source))
+                self.installer._exec(self.python_bin, python_file)
+            finally:
+                shutil.rmtree(temp_dir)
 
         def setup_cli(self, parser):
 
@@ -2402,9 +2409,12 @@ class Installer(object):
             # Change the hostname
             with self.zeo_process():
                 self._python(
-                    "'from %s.scripts.shell import config, datastore; "
-                    "config.websites[0].hosts[0] = \"%s\"; "
-                    "datastore.commit()'"
+                    """
+                    from %s.scripts.shell import config, datastore
+                    open("/tmp/debug", "a").write(config.websites[0].hosts[0] + "\\n")
+                    config.websites[0].hosts[0] = "%s"
+                    datastore.commit()
+                    """
                     % (self.package, self.hostname)
                 )
 
@@ -2477,11 +2487,15 @@ class Installer(object):
                         self.import_upload(item, dest_folder)
 
                 # Create links for static publication
-                self._python(
-                    "'from %s.scripts.shell import File, statipublication; "
-                    "for f in File.select(): staticpublication.create_links(f)'"
-                    % self.package
-                )
+                with self.zeo_process():
+                    self._python(
+                        """
+                        from %s.scripts.shell import File, staticpublication
+                        for f in File.select():
+                            staticpublication.create_links(f)
+                        """
+                        % self.package
+                    )
 
         def import_upload(self, src, dest):
             shutil.copy(src, dest)
