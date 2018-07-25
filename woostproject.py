@@ -319,6 +319,8 @@ class Installer(object):
             "lib32z1-dev"
         ]
 
+        python_packages = []
+
         features = {
             "launcher": {
                 "help": "Create desktop launchers for Woost projects",
@@ -387,12 +389,23 @@ class Installer(object):
             self.installer.heading("Installing core dependencies")
             self.installer._sudo("apt-get", "install", "-y", *self.packages)
 
+            for pkg in self.python_packages:
+                self.installer._sudo("-H", "pip", "install", pkg)
+
             for feature in self.selected_features:
                 self.installer.heading("Installing %s support" % feature)
                 feature = self.features[feature]
-                self.installer._sudo(
-                    "apt-get", "install", "-y", *feature["packages"]
-                )
+
+                feature_packages = feature.get("packages")
+                if feature_packages:
+                    self.installer._sudo(
+                        "apt-get", "install", "-y", *feature_packages
+                    )
+
+                feature_python_packages = feature.get("python_packages")
+                if feature_python_packages:
+                    for pkg in feature_python_packages:
+                        self.installer._sudo("-H", "pip", "install", pkg)
 
         def setup_apache(self):
             self.installer.heading("Global setup for the Apache webserver")
