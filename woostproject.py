@@ -22,6 +22,81 @@ from tempfile import mkdtemp
 from contextlib import contextmanager
 
 
+class DependencySet(object):
+
+    def __init__(
+        self,
+        packages = None,
+        python_packages = None,
+        repositories = None,
+        apache_modules = None
+    ):
+        self.packages = packages or []
+        self.python_packages = python_packages or []
+        self.repositories = repositories or []
+        self.apache_modules = apache_modules or []
+
+    def install(self, installer):
+
+        if self.repositories:
+            installer._install_packages("software-properties-common")
+
+            for repository in self.repositories:
+                installer._install_repository(repository)
+
+        if self.packages:
+            installer._install_packages(*self.packages)
+
+        for python_package in self.python_packages:
+            installer._install_python_package(python_package)
+
+        for apache_mod in self.apache_modules:
+            installer._enable_apache_module(apache_mod)
+
+
+class Feature(DependencySet):
+
+    def __init__(self, description, installed_by_default = False, **kwargs):
+        DependencySet.__init__(self, **kwargs)
+        self.description = description
+        self.installed_by_default = installed_by_default
+
+
+class Command(object):
+
+    name = None
+    help = None
+    description = None
+    disabled_parameters = []
+
+    def __init__(self, installer):
+        self.installer = installer
+        self.disabled_parameters = list(self.disabled_parameters)
+
+    def _arg_name(self, parameter):
+        return "--" + parameter.replace("_", "-")
+
+    def _param_matches_args(self, param, args):
+        return param in args or self._arg_name(param) in args
+
+    def setup_cli(self, parser):
+        pass
+
+    def add_argument(self, owner, *args, **kwargs):
+        for param in self.disabled_parameters:
+            if self._param_matches_args(param, args):
+                break
+        else:
+            owner.add_argument(*args, **kwargs)
+
+    def process_parameters(self, parameters):
+        for key, value in parameters.iteritems():
+            setattr(self, key, value)
+
+    def __call__(self):
+        pass
+
+
 class Installer(object):
 
     ports_file = "~/.woost-ports"
@@ -34,7 +109,7 @@ class Installer(object):
             value = getattr(self, key)
             if (
                 isinstance(value, type)
-                and issubclass(value, Installer.Command)
+                and issubclass(value, Command)
                 and value.name
             ):
                 command = value(self)
@@ -255,39 +330,17 @@ class Installer(object):
             match = re.compile(r"Version: (\d+(\.\d+)*)").search(output)
             return tuple(match.group(1).split("."))
 
-    class Command(object):
+    def _install_packages(self, *packages):
+        self._sudo("apt-get", "install", "-y", *packages)
 
-        name = None
-        help = None
-        description = None
-        disabled_parameters = []
+    def _install_repository(self, repository):
+        self._sudo("add-apt-repository", "-y", "-u", repository)
 
-        def __init__(self, installer):
-            self.installer = installer
-            self.disabled_parameters = list(self.disabled_parameters)
+    def _install_python_package(self, package):
+        self._sudo("-H", "pip", "install", package)
 
-        def _arg_name(self, parameter):
-            return "--" + parameter.replace("_", "-")
-
-        def _param_matches_args(self, param, args):
-            return param in args or self._arg_name(param) in args
-
-        def setup_cli(self, parser):
-            pass
-
-        def add_argument(self, owner, *args, **kwargs):
-            for param in self.disabled_parameters:
-                if self._param_matches_args(param, args):
-                    break
-            else:
-                owner.add_argument(*args, **kwargs)
-
-        def process_parameters(self, parameters):
-            for key, value in parameters.iteritems():
-                setattr(self, key, value)
-
-        def __call__(self):
-            pass
+    def _enable_apache_module(self, module):
+        self._sudo("a2enmod", module)
 
     class BootstrapCommand(Command):
 
@@ -304,60 +357,72 @@ class Installer(object):
                   "selected / deselected using the "
                   "--with-feature / --without-feature parameters:\n\n"
                 + "\n".join(
-                    ("  %s%s" % ((key + ":").ljust(22), feature["help"]))
+                    (
+                        "  %s%s"
+                        % (
+                            (
+                                key + (
+                                    "*"
+                                    if feature.installed_by_default
+                                    else ""
+                                ) + ":"
+                            ).ljust(22),
+                            feature.description
+                        )
+                    )
                     for key, feature in self.features.iteritems()
                 )
             )
 
-        packages = [
-            "build-essential",
-            "python-dev",
-            "python-pip",
-            "python-setuptools",
-            "python-imaging",
-            "libxml2-dev",
-            "libxslt1-dev",
-            "apache2",
-            "lib32z1-dev"
-        ]
+        dependencies = DependencySet(
+            packages = [
+                "build-essential",
+                "python-dev",
+                "python-pip",
+                "python-setuptools",
+                "python-imaging",
+                "libxml2-dev",
+                "libxslt1-dev",
+                "apache2",
+                "lib32z1-dev"
+            ],
+            apache_modules = [
+                "rewrite",
+                "proxy",
+                "proxy_http"
+            ]
+        )
 
-        python_packages = []
+        features = OrderedDict([
+            ("pdf", Feature(
+                "Generate thumbnails of PDF files",
+                installed_by_default = True,
+                packages = ["ghostscript"]
+            )),
+            ("mercurial", Feature(
+                "Create Mercurial repositories for Woost projects",
+                installed_by_default = True,
+                packages = ["mercurial"]
+            )),
+            ("launcher", Feature(
+                "Create desktop launchers for Woost projects",
+                packages = ["xtitle", "gnome-terminal"]
+            )),
+            ("mod_wsgi", Feature(
+                "Deploy using mod_wsgi",
+                packages = ["libapache2-mod-wsgi"],
+                apache_modules = ["wsgi"]
+            ))
+        ])
 
-        features = {
-            "launcher": {
-                "help": "Create desktop launchers for Woost projects",
-                "packages": ["xtitle", "gnome-terminal"]
-            },
-            "pdf": {
-                "help": "Generate thumbnails of PDF files",
-                "packages": ["ghostscript"]
-            },
-            "mod_wsgi": {
-                "help": "Deploy using mod_wsgi",
-                "packages": ["libapache2-mod-wsgi"],
-                "apache_mods": ["wsgi"]
-            },
-            "mercurial": {
-                "help": "Create Mercurial repositories for Woost projects",
-                "packages": ["mercurial"]
-            }
-        }
-
-        # Enable all features by default
-        selected_features = set(features)
+        # Select all features flagged as 'installed by default'
+        selected_features = None
         added_features = set()
         removed_features = set()
 
-        apache_modules = [
-            "rewrite",
-            "proxy",
-            "proxy_http"
-        ]
-
         def __call__(self):
             self.init_config()
-            self.install_packages()
-            self.setup_apache()
+            self.install_dependencies()
             self.secure_eggs_folder()
 
         def setup_cli(self, parser):
@@ -385,48 +450,25 @@ class Installer(object):
             )
 
         def init_config(self):
-            self.selected_features = set(self.selected_features)
+            self.selected_features = set(
+                feature_id
+                for feature_id, feature in self.features.iteritems()
+                if feature.installed_by_default
+            )
             self.selected_features.update(self.added_features)
             self.selected_features.difference_update(self.removed_features)
 
-        def install_packages(self):
+        def install_dependencies(self):
+
             self.installer.heading("Installing core dependencies")
-            self.installer._sudo("apt-get", "install", "-y", *self.packages)
+            self.dependencies.install(self.installer)
 
-            for pkg in self.python_packages:
-                self.installer._sudo("-H", "pip", "install", pkg)
+            for feature_id in self.selected_features:
+                feature = self.features[feature_id]
+                self.installer.heading("Installing support for " + feature_id)
+                feature.install(self.installer)
 
-            for feature in self.selected_features:
-                self.installer.heading("Installing %s support" % feature)
-                feature = self.features[feature]
-
-                feature_packages = feature.get("packages")
-                if feature_packages:
-                    self.installer._sudo(
-                        "apt-get", "install", "-y", *feature_packages
-                    )
-
-                feature_python_packages = feature.get("python_packages")
-                if feature_python_packages:
-                    for pkg in feature_python_packages:
-                        self.installer._sudo("-H", "pip", "install", pkg)
-
-        def setup_apache(self):
-            self.installer.heading("Global setup for the Apache webserver")
-            self.enable_apache_modules()
-            self.restart_apache()
-
-        def enable_apache_modules(self):
-            for module in self.apache_modules:
-                self.installer._sudo("a2enmod", module)
-
-            for feature in self.selected_features:
-                feature_mods = self.features[feature].get("apache_mods")
-                if feature_mods:
-                    for module in feature_mods:
-                        self.installer._sudo("a2enmod", module)
-
-        def restart_apache(self):
+            self.installer.heading("Restarting Apache")
             self.installer._sudo("service", "apache2", "restart")
 
         def secure_eggs_folder(self):
