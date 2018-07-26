@@ -450,6 +450,7 @@ class Installer(object):
             "copy_uploads",
             "configure_zeo_service",
             "configure_temp_files_purging",
+            "configure_backup",
             "configure_apache",
             "add_hostname_to_hosts_file",
             "create_mercurial_repository",
@@ -465,6 +466,7 @@ class Installer(object):
                 "zodb_deployment_scheme": "zeo",
                 "zeo_pack": False,
                 "purge_temp_files": False,
+                "backup": False,
                 "cherrypy_env_global_config": []
             },
             "production": {
@@ -472,6 +474,7 @@ class Installer(object):
                 "zodb_deployment_scheme": "zeo_service",
                 "zeo_pack": True,
                 "purge_temp_files": True,
+                "backup": False,
                 "cherrypy_env_global_config": [
                     '"engine.autoreload_on": False',
                     '"server.log_to_screen": False'
@@ -530,6 +533,58 @@ class Installer(object):
             MAX_DAYS=--SETUP-PURGE_TEMP_FILES_MAX_DAYS--
             $FIND $PROJECT_DIR/sessions -mtime +$MAX_DAYS -delete
             $FIND $PROJECT_DIR/upload/temp -mtime +$MAX_DAYS -delete
+            """
+
+        backup = None
+        backup_dir = None
+        backup_frequency = "30 04 * * *"
+        backup_max_days = 3
+        backup_template = r"""
+            #!/bin/bash
+            PROJECT_DIR=--SETUP-PROJECT_DIR--
+            DEST=--SETUP-BACKUP_DIR--
+            mkdir -p $DEST
+
+            # Upload backup
+            BACKUP_DATE=`date +%Y%m%d%H%M%S`
+            UPLOAD_DIR=$PROJECT_DIR/upload
+
+            # Upload backup
+            /usr/bin/rsync \
+                --exclude=temp \
+                -abv \
+                --delete-after \
+                --backup-dir=$DEST/incremental/$BACKUP_DATE \
+                $UPLOAD_DIR \
+                $DEST/current
+
+            # Database backup
+            DB_FILE=$PROJECT_DIR/data/database.fs
+            REPOZO=--SETUP-VIRTUAL_ENV_DIR--/bin/repozo
+            FIND=/usr/bin/find
+            mkdir -p $DEST/current/data
+
+            # - Full backup
+            DOW=`date +%a`
+            if [ $DOW = "Sun" ]; then
+                echo "Sunday full backup:"
+
+                # Update full backup date
+                date +%d-%b > $DEST/current/data/database-full-date
+
+                $REPOZO -FBvzQ -r $DEST/current/data -f $DB_FILE
+
+            # - Incremental backup
+            else
+                $REPOZO -BvzQ -r $DEST/current/data -f $DB_FILE
+            fi
+
+            # Delete old backups
+            MAX_DAYS=--SETUP-BACKUP_MAX_DAYS--
+            $FIND $DEST/current/data -type f -mtime $MAX_DAYS -delete
+            $FIND $DEST/current/data -type d -empty -mtime $MAX_DAYS -delete
+            $FIND $DEST/incremental -type f -mtime $MAX_DAYS -delete
+            $FIND $DEST/incremental -type d -empty -mtime $MAX_DAYS -delete
             """
 
         languages = ("en",)
@@ -1444,6 +1499,71 @@ class Installer(object):
                 default = self.purge_temp_files_max_days
             )
 
+            parser.backup_group = parser.add_argument_group(
+                "Backup",
+                "Options to control database and upload backups."
+            )
+
+            self.add_argument(
+                parser.backup_group,
+                "--backup",
+                action = "store_true"
+            )
+
+            self.add_argument(
+                parser.backup_group,
+                "--no-backup",
+                help = """
+                    Enables or disables backup operations. Defaults to %s.
+                    """ % (
+                        serialize_bool(self.backup)
+                        if self.backup is not None
+                        else ", ".join(
+                            "%s (%s)" % (
+                                serialize_bool(defaults["backup"]),
+                                env
+                            )
+                            for env, defaults in self.environments.iteritems()
+                        )
+                    ),
+                dest = "backup",
+                action = "store_false"
+            )
+
+            self.add_argument(
+                parser.backup_group,
+                "--backup-dir",
+                help = """
+                    The directory where backed up files should be stored.
+                    Defaults to %s.
+                    """ % (
+                        self.backup_dir
+                        or '~/backups on projects with a dedicated user, '
+                           'to ROOT_DIR/backups otherwise'
+                    ),
+                default = self.backup_dir
+            )
+
+            self.add_argument(
+                parser.backup_group,
+                "--backup-frequency",
+                help = """
+                    The frequency of backup operations, specified in crontab
+                    format. Defaults to '%s'.
+                    """ % self.backup_frequency,
+                default = self.backup_frequency
+            )
+
+            self.add_argument(
+                parser.backup_group,
+                "--backup-max-days",
+                help = """
+                    The maximum retention for backups, in days. Defaults to %d.
+                    """ % self.backup_max_days,
+                type = int,
+                default = self.backup_max_days
+            )
+
             parser.logging_group = parser.add_argument_group(
                 "Logging",
                 "Options to control application logs."
@@ -1959,6 +2079,17 @@ class Installer(object):
 
             # ZEO service
             self.zeo_service_name = self.alias + "-zeo"
+
+            # Backup
+            if not self.backup_dir:
+                if self.dedicated_user:
+                    self.backup_dir = os.path.join(
+                        "/home",
+                        self.dedicated_user,
+                        "backups"
+                    )
+                else:
+                    self.backup_dir = os.path.join(self.root_dir, "backups")
 
             # Apache configuration
             self.apache_vhost_file = (
@@ -2638,6 +2769,28 @@ class Installer(object):
 
                 os.chmod(purge_script, 0744)
                 cronjob = "%s %s" % (self.purge_temp_files_frequency, purge_script)
+                self.installer._exec(
+                    "(crontab -l; echo '%s') | crontab -" % cronjob,
+                    shell = True
+                )
+
+        def configure_backup(self):
+
+            if self.backup:
+
+                self.installer.heading("Configuring backups")
+
+                backup_script = os.path.join(
+                    self.project_dir,
+                    "scripts",
+                    "backup.sh"
+                )
+
+                with open(backup_script, "w") as f:
+                    f.write(self.process_template(self.backup_template))
+
+                os.chmod(backup_script, 0744)
+                cronjob = "%s %s" % (self.backup_frequency, backup_script)
                 self.installer._exec(
                     "(crontab -l; echo '%s') | crontab -" % cronjob,
                     shell = True
