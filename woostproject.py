@@ -2051,6 +2051,24 @@ class Installer(object):
                 pos = self.tasks.index(before)
                 self.tasks.insert(pos, task)
 
+        def add_preliminary_task(self, task, after = None, before = None):
+
+            if not after and not before:
+                raise ValueError("Must specify a position for task %r" % task)
+
+            if after and before:
+                raise ValueError(
+                    "Can't specify both 'after' and 'before' when adding a "
+                    "task"
+                )
+
+            if after:
+                pos = self.preliminary_tasks.index(after)
+                self.preliminary_tasks.insert(pos + 1, task)
+            else:
+                pos = self.preliminary_tasks.index(before)
+                self.preliminary_tasks.insert(pos, task)
+
         def init_config(self):
 
             # Apply per-environment defaults
