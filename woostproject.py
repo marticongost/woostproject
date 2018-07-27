@@ -512,9 +512,12 @@ class Installer(object):
 
     class InstallCommand(Command):
 
-        steps = [
+        preliminary_steps = [
             "init_config",
-            "become_dedicated_user",
+            "become_dedicated_user"
+        ]
+
+        steps = [
             "create_project_directories",
             "create_virtual_environment",
             "install_libs",
@@ -2023,6 +2026,10 @@ class Installer(object):
             )
 
         def __call__(self):
+
+            for step in self.preliminary_steps:
+                getattr(self, step)()
+
             for step in self.steps:
                 getattr(self, step)()
 
