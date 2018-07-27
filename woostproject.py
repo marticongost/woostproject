@@ -684,6 +684,8 @@ class Installer(object):
         package = None
         vhost_name = None
         workspace = None
+        root_host = None
+        default_root_host = "localhost"
         woost_releases = {
             "joust": (2, 5),
             "kungfu": (2, 6),
@@ -2213,6 +2215,12 @@ class Installer(object):
                 else:
                     self.workspace = os.environ["WORKSPACE"]
 
+            if not self.root_host:
+                self.root_host = (
+                    os.environ.get("WOOST_ROOT_HOST")
+                    or self.default_root_host
+                )
+
             if self.installation_id is None:
                 self.installation_id = (
                     os.environ.get("WOOST_INSTALLATION_ID")
@@ -2270,7 +2278,7 @@ class Installer(object):
                 )
 
             if not self.hostname:
-                self.hostname = self.flat_website_alias
+                self.hostname = self.flat_website_alias + "." + self.root_host
 
             if self.deployment_scheme == "cherrypy":
                 self.app_server_hostname = self.hostname
