@@ -2916,6 +2916,16 @@ class Installer(object):
         def copy_database(self):
 
             self.installer.heading("Copying database")
+
+            # Remove all files (preserving the existing DB index and other
+            # auxiliary files could lead to corruption)
+            self.installer._exec(
+                "find",
+                os.path.join(self.project_dir, "data"),
+                "-type", "f",
+                "-delete"
+            )
+
             self.import_database(
                 os.path.join(
                     self.source_installation,
