@@ -512,12 +512,12 @@ class Installer(object):
 
     class InstallCommand(Command):
 
-        preliminary_steps = [
+        preliminary_tasks = [
             "init_config",
             "become_dedicated_user"
         ]
 
-        steps = [
+        tasks = [
             "create_project_directories",
             "create_virtual_environment",
             "install_libs",
@@ -1269,16 +1269,16 @@ class Installer(object):
 
             self.add_argument(
                 parser,
-                "--steps",
+                "--tasks",
                 help = """
-                    The steps to execute. Useful to skip certain tasks when
+                    The tasks to execute. Useful to skip certain tasks when
                     ammending or fixing a previous installation. Default
                     sequence: %s
-                    """ % " ".join(self.steps),
+                    """ % " ".join(self.tasks),
                 nargs = "+",
-                metavar = "step",
-                choices = list(self.steps),
-                default = self.steps
+                metavar = "task",
+                choices = list(self.tasks),
+                default = self.tasks
             )
 
             self.add_argument(
@@ -2027,29 +2027,29 @@ class Installer(object):
 
         def __call__(self):
 
-            for step in self.preliminary_steps:
-                getattr(self, step)()
+            for task in self.preliminary_tasks:
+                getattr(self, task)()
 
-            for step in self.steps:
-                getattr(self, step)()
+            for task in self.tasks:
+                getattr(self, task)()
 
-        def add_step(self, step, after = None, before = None):
+        def add_task(self, task, after = None, before = None):
 
             if not after and not before:
-                raise ValueError("Must specify a position for step %r" % step)
+                raise ValueError("Must specify a position for task %r" % task)
 
             if after and before:
                 raise ValueError(
                     "Can't specify both 'after' and 'before' when adding a "
-                    "step"
+                    "task"
                 )
 
             if after:
-                pos = self.steps.index(after)
-                self.steps.insert(pos + 1, step)
+                pos = self.tasks.index(after)
+                self.tasks.insert(pos + 1, task)
             else:
-                pos = self.steps.index(before)
-                self.steps.insert(pos, step)
+                pos = self.tasks.index(before)
+                self.tasks.insert(pos, task)
 
         def init_config(self):
 
@@ -3391,7 +3391,7 @@ class Installer(object):
             "source_installation"
         ]
         disabled_parameters = [
-            "steps",
+            "tasks",
             "recreate-env"
         ]
 
