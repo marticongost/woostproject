@@ -644,8 +644,9 @@ class Installer(object):
             "configure_zeo_service",
             "configure_temp_files_purging",
             "configure_backup",
-            "obtain_lets_encrypt_certificate",
             "configure_apache",
+            "obtain_lets_encrypt_certificate",
+            "configure_apache_https",
             "add_hostname_to_hosts_file",
             "create_mercurial_repository",
             "create_launcher"
@@ -3188,9 +3189,9 @@ class Installer(object):
                 self.get_apache_vhost_config()
             )
             self.installer._sudo("a2ensite", self.vhost_name)
-            self.installer._sudo("service", "apache2", "restart")
+            self.installer._sudo("service", "apache2", "reload")
 
-        def get_apache_vhost_config(self):
+        def get_apache_vhost_config(self, https = False):
 
             template = self.apache_vhost_template.replace(
                 "==SETUP-INCLUDE_VHOST_REDIRECTION_RULES==",
@@ -3201,7 +3202,7 @@ class Installer(object):
                 )
             )
 
-            if self.lets_encrypt:
+            if https:
                 template += self.vhost_ssl_template
 
             if self.deployment_scheme == "mod_wsgi":
@@ -3211,6 +3212,22 @@ class Installer(object):
                     template += u"\n" + self.cache_server_vhost_template
 
             return self.process_template(template)
+
+        def configure_apache_https(self):
+
+            if (
+                self.vhost_ssl_private_key_file
+                and self.vhost_ssl_certificate_file
+            ):
+                self.installer.heading(
+                    "Configuring the site's Apache virtual host for HTTPS"
+                )
+
+                self.installer._sudo_write(
+                    self.apache_vhost_file,
+                    self.get_apache_vhost_config(https = True)
+                )
+                self.installer._sudo("service", "apache2", "reload")
 
         def create_mercurial_repository(self):
 
