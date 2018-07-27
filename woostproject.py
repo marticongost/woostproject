@@ -22,70 +22,223 @@ from tempfile import mkdtemp
 from contextlib import contextmanager
 
 
-class DependencySet(object):
+class Feature(object):
+
+    version = 1
+    installed_by_default = False
+    packages = []
+    python_packages = []
+    repositories = []
+    apache_modules = []
 
     def __init__(
         self,
+        installer,
+        id = None,
+        description = None,
+        installed_by_default = None,
         packages = None,
         python_packages = None,
         repositories = None,
         apache_modules = None
     ):
-        self.packages = packages or []
-        self.python_packages = python_packages or []
-        self.repositories = repositories or []
-        self.apache_modules = apache_modules or []
+        self.__installer = installer
 
-    def install(self, installer):
+        if not id:
+            id = self.__class__.__name__.lower()
+            if id.endswith("feature"):
+                id = id[:-len("feature")]
+
+        self.__id = id
+
+        if installed_by_default is not None:
+            self.installed_by_default = installed_by_default
+
+        if description is not None:
+            self.description = description
+
+        if packages is None:
+            self.packages = list(self.packages)
+        else:
+            self.packages = packages
+
+        if python_packages is None:
+            self.python_packages = list(self.python_packages)
+        else:
+            self.python_packages = python_packages
+
+        if repositories is None:
+            self.repositories = list(self.repositories)
+        else:
+            self.repositories = repositories
+
+        if apache_modules is None:
+            self.apache_modules = list(self.apache_modules)
+        else:
+            self.apache_modules = apache_modules
+
+    @property
+    def installer(self):
+        return self.__installer
+
+    @property
+    def id(self):
+        return self.__id
+
+    def install(self):
+        self.installer.heading("Installing feature " + self.__id)
+        self.install_dependencies()
+
+    def install_dependencies(self):
 
         if self.repositories:
-            installer._install_packages("software-properties-common")
+            self.installer._install_packages("software-properties-common")
 
             for repository in self.repositories:
-                installer._install_repository(repository)
+                self.installer._install_repository(repository)
 
         if self.packages:
-            installer._install_packages(*self.packages)
+            self.installer._install_packages(*self.packages)
 
         for python_package in self.python_packages:
-            installer._install_python_package(python_package)
+            self.installer._install_python_package(python_package)
 
-        for apache_mod in self.apache_modules:
-            installer._enable_apache_module(apache_mod)
+        if self.apache_modules:
+            for apache_mod in self.apache_modules:
+                self.installer._enable_apache_module(apache_mod)
+
+            self.installer._sudo("service", "apache2", "restart")
+
+    @property
+    def version_file(self):
+        return os.path.join(self.installer.config_dir, "features", self.id)
+
+    def write_version(self):
+        self.installer._sudo_write(self.version_file, str(self.version))
+
+    def get_installed_version(self):
+        try:
+            with open(self.version_file, "r") as feature_file:
+                return int(feature_file.read())
+        except (IOError, ValueError):
+            return 0
+
+    def disable(self):
+        self.installer._sudo_write(self.version_file, "-1")
+
+    def is_disabled(self):
+        return self.get_installed_version() == -1
+
+    def needs_update(self):
+        installed_version = self.get_installed_version()
+        return installed_version != -1 and installed_version < self.version
+
+    def update(self):
+
+        self.installer.require_config_dir()
+
+        installed_version = self.get_installed_version()
+        new_version = None
+
+        if installed_version != -1 and installed_version < self.version:
+            self.install()
+            self.write_version()
+            new_version = self.version
+
+        return installed_version, new_version
 
 
-class Feature(DependencySet):
+class CoreFeature(Feature):
+    description = "Basic packages required to install Woost projects."
+    installed_by_default = True
+    packages = [
+        "build-essential",
+        "python-dev",
+        "python-pip",
+        "python-setuptools",
+        "python-imaging",
+        "libxml2-dev",
+        "libxslt1-dev",
+        "lib32z1-dev"
+    ]
 
-    def __init__(self, description, installed_by_default = False, **kwargs):
-        DependencySet.__init__(self, **kwargs)
-        self.description = description
-        self.installed_by_default = installed_by_default
+    def install(self):
+        Feature.install(self)
+        self.secure_eggs_folder()
+
+    def secure_eggs_folder(self):
+        eggs_folder = os.path.expanduser("~/.python-eggs")
+        if os.path.exists(eggs_folder):
+            os.chmod(eggs_folder, 0744)
+
+
+class PDFRendererFeature(Feature):
+    description = "Generate thumbnails for PDF files."
+    installed_by_default = True
+    packages = ["ghostscript"]
+
+
+class ApacheFeature(Feature):
+    description = "Serve Woost websites with the Apache webserver."
+    packages = [
+        "apache2"
+    ]
+    apache_modules = [
+        "rewrite",
+        "proxy",
+        "proxy_http",
+        "macro"
+    ]
+
+
+class ModWSGIFeature(Feature):
+    description = "Deploy using mod_wsgi"
+    packages = ["libapache2-mod-wsgi"]
+    apache_modules = ["wsgi"]
 
 
 class LetsEncryptFeature(Feature):
 
+    description = "Obtain and renew free SSL certificates"
+    repositories = ["ppa:certbot/certbot"]
+    packages = ["python-certbot-apache"]
+    apache_modules = ["headers"]
+
     renewal_frequency = "weekly"
     renewal_command = "/usr/bin/certbot renew"
 
-    def install(self, installer):
-        Feature.install(self, installer)
+    def install(self):
+        Feature.install(self)
 
         # Change permissions for the certificates directory
         # (otherwise Apache fails to start)
-        installer._sudo("chmod", "755", "/etc/letsencrypt/archive")
+        self.installer._sudo("chmod", "755", "/etc/letsencrypt/archive")
 
         # Cronjob for certificate renewal
         cronjob_script = "/etc/cron.%s/lets-encrypt-renewal" % self.renewal_frequency
-        installer._sudo_write(
+        self.installer._sudo_write(
             cronjob_script,
-            installer.normalize_indent(
+            self.installer.normalize_indent(
                 """
                 #!/bin/bash
                 %s
                 """ % self.renewal_command
             )
         )
-        installer._sudo("chmod", "755", cronjob_script)
+        self.installer._sudo("chmod", "755", cronjob_script)
+
+
+class MercurialFeature(Feature):
+    description = "Create Mercurial repositories for Woost projects"
+    packages = ["mercurial"]
+
+
+class LauncherFeature(Feature):
+    description = "Create desktop launchers for Woost projects"
+    packages = ["xtitle", "gnome-terminal"]
+
+    def is_supported(self):
+        return os.path.exists("/usr/bin/X")
 
 
 class Command(object):
@@ -125,10 +278,27 @@ class Command(object):
 
 class Installer(object):
 
-    ports_file = "~/.woost-ports"
+    config_dir = "/etc/woost"
+    ports_file = os.path.join(config_dir, "ports")
+    legacy_ports_file = os.path.expanduser("~/.woost-ports")
     first_automatic_port = 13000
 
     def __init__(self):
+
+        self.features = OrderedDict()
+
+        for feature_class in (
+            CoreFeature,
+            PDFRendererFeature,
+            ApacheFeature,
+            ModWSGIFeature,
+            LetsEncryptFeature,
+            MercurialFeature,
+            LauncherFeature
+        ):
+            feature = feature_class(self)
+            self.features[feature.id] = feature
+
         commands = OrderedDict()
 
         for key in dir(self):
@@ -143,6 +313,19 @@ class Installer(object):
                 commands[command.name] = command
 
         self.commands = commands
+
+    def require_config_dir(self):
+        if not os.path.exists(self.config_dir):
+            self._sudo("mkdir", "-p", os.path.join(self.config_dir, "features"))
+
+            # Legacy support: copy ~/.woost-ports to /etc/woost/ports
+            if os.path.exists(self.legacy_ports_file):
+                self._sudo("cp", self.legacy_ports_file, self.ports_file)
+                self._sudo("chown", "root:root", self.ports_file)
+            else:
+                self._sudo("touch", self.ports_file)
+
+            self._sudo("chmod", "777", self.ports_file)
 
     def create_cli(self):
         parser = ArgumentParser()
@@ -368,24 +551,20 @@ class Installer(object):
     def _enable_apache_module(self, module):
         self._sudo("a2enmod", module)
 
-    class BootstrapCommand(Command):
+    class FeatureCommand(Command):
 
-        name = "bootstrap"
-        help = \
-            "Install the system packages required by Woost and apply global " \
-            "configuration."
+        name = "feature"
+        help = "Install, update or disable global features and " \
+               "configuration required by Woost."
 
         @property
         def description(self):
             return (
                 self.help
-                + "\n\nThe following features can be "
-                  "selected / deselected using the "
-                  "--with-feature / --without-feature parameters:\n\n"
+                + "\n\nAvailable features:\n\n"
                 + "\n".join(
                     (
-                        "  %s%s"
-                        % (
+                        "  %s%s" % (
                             (
                                 key + (
                                     "*"
@@ -396,123 +575,59 @@ class Installer(object):
                             feature.description
                         )
                     )
-                    for key, feature in self.features.iteritems()
+                    for key, feature in self.installer.features.iteritems()
                 )
+                + "\n\nFeatures marked with a * character are installed by "
+                  "default; other features will\nbe installed if needed."
             )
-
-        dependencies = DependencySet(
-            packages = [
-                "build-essential",
-                "python-dev",
-                "python-pip",
-                "python-setuptools",
-                "python-imaging",
-                "libxml2-dev",
-                "libxslt1-dev",
-                "apache2",
-                "lib32z1-dev"
-            ],
-            apache_modules = [
-                "rewrite",
-                "proxy",
-                "proxy_http",
-                "macro"
-            ]
-        )
-
-        features = OrderedDict([
-            ("pdf", Feature(
-                "Generate thumbnails of PDF files",
-                installed_by_default = True,
-                packages = ["ghostscript"]
-            )),
-            ("mercurial", Feature(
-                "Create Mercurial repositories for Woost projects",
-                installed_by_default = True,
-                packages = ["mercurial"]
-            )),
-            ("launcher", Feature(
-                "Create desktop launchers for Woost projects",
-                packages = ["xtitle", "gnome-terminal"]
-            )),
-            ("mod_wsgi", Feature(
-                "Deploy using mod_wsgi",
-                packages = ["libapache2-mod-wsgi"],
-                apache_modules = ["wsgi"]
-            )),
-            ("letsencrypt", LetsEncryptFeature(
-                "Obtain and renew free SSL certificates",
-                repositories = ["ppa:certbot/certbot"],
-                packages = ["python-certbot-apache"],
-                apache_modules = ["headers"]
-            ))
-        ])
-
-        # Select all features flagged as 'installed by default'
-        selected_features = None
-        added_features = set()
-        removed_features = set()
-
-        def __call__(self):
-            self.init_config()
-            self.install_dependencies()
-            self.secure_eggs_folder()
 
         def setup_cli(self, parser):
 
             self.add_argument(
                 parser,
-                "--with-feature",
-                help = "Enables the specified feature.",
-                choices = list(self.features),
-                nargs = "+",
+                "feature",
+                help = "Selects the feature to operate on.",
                 metavar = "feature",
-                dest = "added_features",
-                default = set()
+                choices = list(self.installer.features)
+            )
+
+            parser.action_group = \
+                parser.add_mutually_exclusive_group(required = True)
+
+            self.add_argument(
+                parser.action_group,
+                "--update",
+                help = "Installs or updates the selected feature.",
+                dest = "action",
+                action = "store_const",
+                const = "update"
             )
 
             self.add_argument(
-                parser,
-                "--without-feature",
-                help = "Disables the specified feature.",
-                choices = list(self.features),
-                nargs = "+",
-                metavar = "feature",
-                dest = "removed_features",
-                default = set()
+                parser.action_group,
+                "--disable",
+                help = """
+                    Disables the selected feature, preventing it from being
+                    automatically installed in the future by an operation that
+                    has it as a dependency.
+                    """,
+                dest = "action",
+                action = "store_const",
+                const = "disable"
             )
 
-        def init_config(self):
-            self.selected_features = set(
-                feature_id
-                for feature_id, feature in self.features.iteritems()
-                if feature.installed_by_default
-            )
-            self.selected_features.update(self.added_features)
-            self.selected_features.difference_update(self.removed_features)
-
-        def install_dependencies(self):
-
-            self.installer.heading("Installing core dependencies")
-            self.dependencies.install(self.installer)
-
-            for feature_id in self.selected_features:
-                feature = self.features[feature_id]
-                self.installer.heading("Installing support for " + feature_id)
-                feature.install(self.installer)
-
-            self.installer.heading("Restarting Apache")
-            self.installer._sudo("service", "apache2", "restart")
-
-        def secure_eggs_folder(self):
-            self.installer.heading("Securing eggs folder")
-            eggs_folder = os.path.expanduser("~/.python-eggs")
-            if os.path.exists(eggs_folder):
-                os.chmod(eggs_folder, 0744)
+        def __call__(self):
+            feature = self.installer.features[self.feature]
+            if self.action == "update":
+                feature.update()
+            elif self.action == "disable":
+                feature.disable()
 
     class InstallCommand(Command):
 
         preliminary_tasks = [
+            "apply_environment_presets",
+            "update_features",
             "init_config",
             "become_dedicated_user"
         ]
@@ -2069,13 +2184,13 @@ class Installer(object):
                 pos = self.preliminary_tasks.index(before)
                 self.preliminary_tasks.insert(pos, task)
 
-        def init_config(self):
-
-            # Apply per-environment defaults
+        def apply_environment_presets(self):
             for setting, default in \
             self.environments[self.environment].iteritems():
                 if getattr(self, setting, None) is None:
                     setattr(self, setting, default)
+
+        def init_config(self):
 
             if not self.woost_version_specifier:
                 release = self.woost_releases[self.woost_version]
@@ -2408,6 +2523,46 @@ class Installer(object):
                     "applications",
                     self.flat_website_alias + ".desktop"
                 )
+
+        def update_features(self):
+
+            updated_features = set()
+
+            for feature in self.installer.features.itervalues():
+                if feature.installed_by_default:
+                    feature.update()
+                    updated_features.add(feature)
+
+            for feature_id in self.get_required_features():
+                if feature_id not in updated_features:
+                    feature = self.installer.features[feature_id]
+                    feature.update()
+                    updated_features.add(feature)
+
+        def get_required_features(self):
+
+            yield "core"
+
+            if self.deployment_scheme == "mod_rewrite":
+                yield "apache"
+            else:
+                yield "apache"
+                yield "modwsgi"
+
+            if self.lets_encrypt:
+                yield "letsencrypt"
+
+            if (
+                "install_libs" in self.tasks
+                or "create_mercurial_repository" in self.tasks
+            ):
+                yield "mercurial"
+
+            if self.launcher == "yes" or (
+                self.launcher == "auto"
+                and self.installer.features["launcher"].is_supported()
+            ):
+                yield "launcher"
 
         def expand_vars(self, string):
             return self.var_reg_expr.sub(self._inject_var, string)
@@ -2759,6 +2914,7 @@ class Installer(object):
                 self.init_database()
 
         def copy_database(self):
+
             self.installer.heading("Copying database")
             self.import_database(
                 os.path.join(
@@ -2963,12 +3119,13 @@ class Installer(object):
                 )
 
         def obtain_lets_encrypt_certificate(self):
-            self.installer.heading("Obtaining Lets Encrypt SSL certificate")
-            self.installer._sudo(
-                "certbot", "certonly", "--webroot",
-                "-d", self.hostname,
-                "-w", self.static_dir
-            )
+            if self.lets_encrypt:
+                self.installer.heading("Obtaining Lets Encrypt SSL certificate")
+                self.installer._sudo(
+                    "certbot", "certonly", "--webroot",
+                    "-d", self.hostname,
+                    "-w", self.static_dir
+                )
 
         def configure_apache(self):
 
@@ -3133,22 +3290,13 @@ class Installer(object):
             if self.launcher == "no":
                 return
 
-            if not os.path.exists("/usr/bin/gsettings"):
-                if self.launcher == "yes":
-                    raise OSError(
-                        "Can't install a desktop launcher without gsettings"
-                    )
-                else:
+            if not self.installer.features["launcher"].is_supported():
+                if self.launcher == "auto":
                     return
-
-            if not os.path.exists("/usr/bin/gnome-terminal"):
-                if self.launcher == "yes":
-                    raise OSError(
-                        "Can't install a desktop launcher without "
-                        "gnome-terminal"
-                    )
                 else:
-                    return
+                    raise OSError(
+                        "Can't install the desktop launcher without an X server"
+                    )
 
             if self.dedicated_user:
                 if self.launcher == "yes":
@@ -3282,10 +3430,10 @@ class Installer(object):
                     )
                 )
 
-    class NewCommand(InstallCommand):
+    class MakeCommand(InstallCommand):
 
-        name = "new"
-        help = "Create a new Woost website."
+        name = "make"
+        help = "Create or modify a Woost website."
         description = help
 
         def setup_cli(self, parser):
@@ -3539,7 +3687,6 @@ class BundleInstaller(Installer):
     def run_cli(self):
         cli = self.create_cli()
         args = cli.parse_args()
-        self.bootstrap()
         self.unbundle.process_parameters(vars(args))
         self.unbundle()
 
