@@ -62,6 +62,32 @@ class Feature(DependencySet):
         self.installed_by_default = installed_by_default
 
 
+class LetsEncryptFeature(Feature):
+
+    renewal_frequency = "weekly"
+    renewal_command = "/usr/bin/certbot renew"
+
+    def install(self, installer):
+        Feature.install(self, installer)
+
+        # Change permissions for the certificates directory
+        # (otherwise Apache fails to start)
+        installer._sudo("chmod", "755", "/etc/letsencrypt/archive")
+
+        # Cronjob for certificate renewal
+        cronjob_script = "/etc/cron.%s/lets-encrypt-renewal" % self.renewal_frequency
+        installer._sudo_write(
+            cronjob_script,
+            installer.normalize_indent(
+                """
+                #!/bin/bash
+                %s
+                """ % self.renewal_command
+            )
+        )
+        installer._sudo("chmod", "755", cronjob_script)
+
+
 class Command(object):
 
     name = None
@@ -389,7 +415,8 @@ class Installer(object):
             apache_modules = [
                 "rewrite",
                 "proxy",
-                "proxy_http"
+                "proxy_http",
+                "macro"
             ]
         )
 
@@ -412,6 +439,12 @@ class Installer(object):
                 "Deploy using mod_wsgi",
                 packages = ["libapache2-mod-wsgi"],
                 apache_modules = ["wsgi"]
+            )),
+            ("letsencrypt", LetsEncryptFeature(
+                "Obtain and renew free SSL certificates",
+                repositories = ["ppa:certbot/certbot"],
+                packages = ["python-certbot-apache"],
+                apache_modules = ["headers"]
             ))
         ])
 
@@ -493,6 +526,7 @@ class Installer(object):
             "configure_zeo_service",
             "configure_temp_files_purging",
             "configure_backup",
+            "obtain_lets_encrypt_certificate",
             "configure_apache",
             "add_hostname_to_hosts_file",
             "create_mercurial_repository",
@@ -878,9 +912,10 @@ class Installer(object):
             }
             """
 
-        apache_2_vhost_template = """
-            <VirtualHost *:80>
+        vhost_macro_name = None
 
+        apache_2_vhost_template = """
+            <Macro --SETUP-VHOST_MACRO_NAME-->
                 ServerName --SETUP-HOSTNAME--
                 DocumentRoot --SETUP-STATIC_DIR--
                 CustomLog --SETUP-APACHE_ACCESS_LOG-- "--SETUP-APACHE_LOG_FORMAT--"
@@ -900,13 +935,15 @@ class Installer(object):
                     Order deny,allow
                     Allow from all
                 </Location>
+            </Macro>
 
+            <VirtualHost *:80>
+                Use --SETUP-VHOST_MACRO_NAME--
             </VirtualHost>
             """
 
         apache_2_4_vhost_template = """
-            <VirtualHost *:80>
-
+            <Macro --SETUP-VHOST_MACRO_NAME-->
                 ServerName --SETUP-HOSTNAME--
                 DocumentRoot --SETUP-STATIC_DIR--
                 CustomLog --SETUP-APACHE_ACCESS_LOG-- "--SETUP-APACHE_LOG_FORMAT--"
@@ -918,7 +955,10 @@ class Installer(object):
                 <Location />
                     Require all granted
                 </Location>
+            </Macro>
 
+            <VirtualHost *:80>
+                Use --SETUP-VHOST_MACRO_NAME--
             </VirtualHost>
             """
 
@@ -958,6 +998,19 @@ class Installer(object):
                 lambda cmd: True
             )
         ]
+
+        vhost_ssl_private_key_file = None
+        vhost_ssl_certificate_file = None
+
+        vhost_ssl_template = """
+            <VirtualHost *:443>
+                Use --SETUP-VHOST_MACRO_NAME--
+                SSLEngine On
+                SSLCertificateKeyFile --SETUP-VHOST_SSL_PRIVATE_KEY_FILE--
+                SSLCertificateFile --SETUP-VHOST_SSL_CERTIFICATE_FILE--
+                RequestHeader set X-Forwarded-Scheme "https"
+            </VirtualHost>
+            """
 
         mod_wsgi_vhost_template = r"""
             # mod_wsgi application
@@ -1008,6 +1061,8 @@ class Installer(object):
         mod_wsgi_daemon_maximum_requests = 5000
         mod_wsgi_process_group = None
         mod_wsgi_application_group = None
+
+        lets_encrypt = False
 
         cache_enabled = False
         cache_server_port = None
@@ -1889,6 +1944,29 @@ class Installer(object):
                 default = self.mod_wsgi_application_group
             )
 
+            parser.lets_encrypt_group = parser.add_argument_group(
+                "Lets Encrypt",
+                "Options to automate the installation of a SSL from Lets "
+                "Encrypt."
+            )
+
+            self.add_argument(
+                parser.lets_encrypt_group,
+                "--lets-encrypt",
+                action = "store_true"
+            )
+
+            self.add_argument(
+                parser.lets_encrypt_group,
+                "--no-lets-encrypt",
+                help = """
+                    Enables or disables the automatic installation of a Lets
+                    Encrypt SSL certificate. Defaults to %s.
+                    """ % serialize_bool(self.lets_encrypt),
+                dest = "lets_encrypt",
+                action = "store_false"
+            )
+
             parser.cache_group = parser.add_argument_group(
                 "Cache",
                 "Setup content caching."
@@ -2012,6 +2090,9 @@ class Installer(object):
 
             if not self.vhost_name:
                 self.vhost_name = self.flat_website_alias
+
+            if not self.vhost_macro_name:
+                self.vhost_macro_name = self.vhost_name + "_vhost"
 
             if not self.root_dir:
                 self.root_dir = os.path.join(
@@ -2143,22 +2224,40 @@ class Installer(object):
             if self.apache_version[:2] == ("2", "4"):
                 self.apache_vhost_template = self.apache_2_4_vhost_template
                 self.apache_vhost_file += ".conf"
+
+                if self.lets_encrypt:
+                    cert_path = lambda *args: os.path.join(
+                        "/etc",
+                        "letsencrypt",
+                        "live",
+                        self.hostname,
+                        *args
+                    )
+                    if int(self.apache_version[2]) >= 8:
+                        self.vhost_ssl_private_key_file = \
+                            cert_path("privkey.pem")
+                        self.vhost_ssl_certificate_file = \
+                            cert_path("fullchain.pem")
+                    else:
+                        self.vhost_ssl_private_key_file = \
+                            cert_path("cert.pem")
+                        self.vhost_ssl_certificate_file = \
+                            cert_path("chain.pem")
             else:
                 if self.deployment_scheme == "mod_wsgi":
                     sys.stderr.write(
                         "Deployment with mod_wsgi requires Apache 2.4\n"
                     )
                     sys.exit(1)
-                self.apache_vhost_template = self.apache_2_vhost_template
 
-            self.apache_vhost_template = self.apache_vhost_template.replace(
-                "==SETUP-INCLUDE_VHOST_REDIRECTION_RULES==",
-                "".join(
-                    rule
-                    for rule, condition in self.vhost_redirection_rules
-                    if condition(self)
-                )
-            )
+                if self.lets_encrypt:
+                    sys.stderr.write(
+                        "Lets Encrypt integration is only available with "
+                        "Apache 2.4\n"
+                    )
+                    sys.exit(1)
+
+                self.apache_vhost_template = self.apache_2_vhost_template
 
             # Apache / mod_wsgi log files
             if self.dedicated_user:
@@ -2838,6 +2937,14 @@ class Installer(object):
                     shell = True
                 )
 
+        def obtain_lets_encrypt_certificate(self):
+            self.installer.heading("Obtaining Lets Encrypt SSL certificate")
+            self.installer._sudo(
+                "certbot", "certonly", "--webroot",
+                "-d", self.hostname,
+                "-w", self.static_dir
+            )
+
         def configure_apache(self):
 
             if self.deployment_scheme == "cherrypy":
@@ -2893,7 +3000,17 @@ class Installer(object):
 
         def get_apache_vhost_config(self):
 
-            template = self.apache_vhost_template
+            template = self.apache_vhost_template.replace(
+                "==SETUP-INCLUDE_VHOST_REDIRECTION_RULES==",
+                "".join(
+                    rule
+                    for rule, condition in self.vhost_redirection_rules
+                    if condition(self)
+                )
+            )
+
+            if self.lets_encrypt:
+                template += self.vhost_ssl_template
 
             if self.deployment_scheme == "mod_wsgi":
                 template += u"\n" + self.mod_wsgi_vhost_template
