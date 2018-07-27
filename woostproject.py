@@ -281,7 +281,7 @@ class Installer(object):
     config_dir = "/etc/woost"
     ports_file = os.path.join(config_dir, "ports")
     legacy_ports_file = os.path.expanduser("~/.woost-ports")
-    first_automatic_port = 13000
+    first_automatic_port = 14000
 
     def __init__(self):
 
