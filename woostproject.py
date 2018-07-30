@@ -655,6 +655,8 @@ class Installer(object):
         website = None
         environment = "development"
 
+        python_packages_url = "https://woost.info/wheels"
+
         environments = {
             "development": {
                 "deployment_scheme": "mod_rewrite",
@@ -2650,6 +2652,18 @@ class Installer(object):
             if not os.path.exists(self.root_dir):
                 os.mkdir(self.root_dir)
 
+        def pip_install(self, *args, **kwargs):
+            self.installer._exec(
+                os.path.join(
+                    self.virtual_env_dir,
+                    "bin",
+                    "pip"
+                ),
+                "install",
+                *args,
+                **kwargs
+            )
+
         def create_virtual_environment(self):
 
             self.installer.heading(
@@ -2660,7 +2674,7 @@ class Installer(object):
             try:
                 from virtualenv import create_environment
             except ImportError:
-                self.installer._sudo("pip", "install", "virtualenv")
+                self.installer._install_python_package("virtualenv")
                 from virtualenv import create_environment
 
             # Remove the previous virtual environment
@@ -2683,39 +2697,13 @@ class Installer(object):
             create_environment(self.virtual_env_dir)
 
             # Upgrade setuptools
-            self.installer._exec(
-                os.path.join(
-                    self.virtual_env_dir,
-                    "bin",
-                    "pip"
-                ),
-                "install",
-                "--upgrade",
-                "setuptools"
-            )
+            self.pip_install("--upgrade", "setuptools")
 
             # Upgrade pip
-            self.installer._exec(
-                os.path.join(
-                    self.virtual_env_dir,
-                    "bin",
-                    "pip"
-                ),
-                "install",
-                "--upgrade",
-                "pip"
-            )
+            self.pip_install("--upgrade", "pip")
 
             # Install ipython
-            self.installer._exec(
-                os.path.join(
-                    self.virtual_env_dir,
-                    "bin",
-                    "pip"
-                ),
-                "install",
-                "ipython==4.0.0"
-            )
+            self.pip_install("ipython==4.0.0")
 
             # Link system packages into the virtual environment
             # (compiling PIL is out of the question...)
@@ -2773,10 +2761,14 @@ class Installer(object):
 
         def setup_python_package(self, package_root):
             subprocess.Popen(
-                "cd %s && source %s && python setup.py develop"
+                "cd %s "
+                "&& source %s "
+                "&& python setup.py develop "
+                "--find-links=%s"
                 % (
                     package_root,
-                    os.path.join(self.virtual_env_dir, "bin", "activate")
+                    os.path.join(self.virtual_env_dir, "bin", "activate"),
+                    self.python_packages_url
                 ),
                 shell = True,
                 executable = "/bin/bash"
