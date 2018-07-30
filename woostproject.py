@@ -678,6 +678,7 @@ class Installer(object):
         }
 
         source_installation = None
+        source_repository = None
         dedicated_user = None
         installation_id = None
         alias = None
@@ -2195,6 +2196,18 @@ class Installer(object):
 
         def init_config(self):
 
+            if not self.source_repository and self.source_installation:
+                self.source_repository = \
+                    self.source_installation + self.website.lower()
+                if (
+                    ":" in self.source_repository
+                    or "@" in self.source_repository
+                ):
+                    self.source_repository = (
+                        "ssh://"
+                        + self.source_repository.replace(":", "/", 1)
+                    )
+
             if not self.woost_version_specifier:
                 release = self.woost_releases[self.woost_version]
                 next_release = (release[0], release[1] + 1)
@@ -2774,17 +2787,8 @@ class Installer(object):
             self.installer.heading("Creating the project skeleton")
 
             # Copy source code from an existing installation using mercurial
-            if self.source_installation:
-                source_repository = os.path.join(
-                    self.source_installation,
-                    self.website.lower(),
-                    ".hg"
-                )
-            else:
-                source_repository = None
-
             if (
-                source_repository
+                self.source_repository
                 and not os.path.exists(
                     os.path.join(self.project_outer_dir, ".hg")
                 )
@@ -2880,7 +2884,7 @@ class Installer(object):
                 f.write(setup_source)
 
             # Discard generated files that are managed with version control
-            if source_repository:
+            if self.source_repository:
                 self.installer._exec(
                     "hg", "revert", "--all", "--no-backup",
                     "-R", self.project_outer_dir
@@ -2935,16 +2939,21 @@ class Installer(object):
                 "-delete"
             )
 
-            self.import_database(
-                os.path.join(
-                    self.source_installation,
-                    self.website.lower(),
-                    *(
-                        self.package.split(".")
-                        + ["data", "database.fs"]
-                    )
-                ),
-                os.path.join(self.project_dir, "data", "database.fs"),
+            # Copy the database file
+            source_file = os.path.join(
+                self.source_installation,
+                self.website.lower(),
+                *(
+                    self.package.split(".")
+                    + ["data", "database.fs"]
+                )
+            )
+            dest_file = os.path.join(self.project_dir, "data", "database.fs")
+            self.installer._exec(
+                "rsync",
+                "-P",
+                source_file,
+                dest_file
             )
 
             # Change the hostname
@@ -3013,19 +3022,21 @@ class Installer(object):
         def copy_uploads(self):
             if self.source_installation:
                 self.installer.heading("Copying uploads")
-                source_folder = os.path.join(
+                src = os.path.join(
                     self.source_installation,
                     self.website.lower(),
                     *(
                         self.package.split(".")
-                        + ["upload"]
+                        + ["upload", "*"]
                     )
                 )
-                dest_folder = os.path.join(self.project_dir, "upload")
-                for file_name in os.listdir(source_folder):
-                    item = os.path.join(source_folder, file_name)
-                    if os.path.isfile(item):
-                        self.import_upload(item, dest_folder)
+                dest = os.path.join(self.project_dir, "upload")
+                self.installer._exec(
+                    "rsync",
+                    src,
+                    dest,
+                    "--exclude", "temp"
+                )
 
                 # Create links for static publication
                 with self.zeo_process():
@@ -3037,12 +3048,6 @@ class Installer(object):
                         """
                         % self.package
                     )
-
-        def import_upload(self, src, dest):
-            shutil.copy(src, dest)
-
-        def import_database(self, src, dest):
-            shutil.copy(src, dest)
 
         def configure_zeo_service(self):
 
@@ -3765,19 +3770,6 @@ class BundleInstaller(Installer):
 
             with tarfile.open(tar_file_path, tar_file_mode) as tar_file:
                 tar_file.extractall(dest)
-
-        def import_upload(self, src, dest):
-            self._move_file(src, dest)
-
-        def import_database(self, src, dest):
-            self._move_file(src, dest)
-
-        def _move_file(self, src, dest):
-            try:
-                shutil.move(src, dest)
-            # Might have been moved already if the command failed
-            except shutil.Error:
-                pass
 
 
 class ProjectSkeleton(object):
