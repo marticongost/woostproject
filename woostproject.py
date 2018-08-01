@@ -262,11 +262,13 @@ class Command(object):
         pass
 
     def add_argument(self, owner, *args, **kwargs):
+
         for param in self.disabled_parameters:
             if self._param_matches_args(param, args):
-                break
-        else:
-            owner.add_argument(*args, **kwargs)
+                return False
+
+        owner.add_argument(*args, **kwargs)
+        return True
 
     def process_parameters(self, parameters):
         for key, value in parameters.iteritems():
