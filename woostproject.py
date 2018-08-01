@@ -2999,7 +2999,7 @@ class Installer(object):
                     self.website.lower(),
                     *(
                         self.package.split(".")
-                        + ["upload", "*"]
+                        + ["upload"]
                     )
                 )
                 dest = os.path.join(self.project_dir, "upload")
