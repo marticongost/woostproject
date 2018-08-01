@@ -634,6 +634,9 @@ class Installer(object):
             "become_dedicated_user"
         ]
 
+        cleanup_tasks = [
+        ]
+
         tasks = [
             "create_project_directories",
             "create_virtual_environment",
@@ -2150,11 +2153,16 @@ class Installer(object):
 
         def __call__(self):
 
-            for task in self.preliminary_tasks:
-                getattr(self, task)()
+            try:
+                for task in self.preliminary_tasks:
+                    getattr(self, task)()
 
-            for task in self.tasks:
-                getattr(self, task)()
+                for task in self.tasks:
+                    getattr(self, task)()
+
+            finally:
+                for task in self.cleanup_tasks:
+                    getattr(self, task)()
 
         def add_task(self, task, after = None, before = None):
 
