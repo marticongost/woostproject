@@ -1436,7 +1436,8 @@ class Installer(object):
                     environment variable. The installer will create a folder
                     for the website in the workspace folder, named after the
                     'alias' (if present) or 'website' parameters.
-                    """
+                    """,
+                default = self.workspace
             )
 
             self.add_argument(
@@ -1471,7 +1472,8 @@ class Installer(object):
                     its bash initialization files will be changed in order to
                     set the appropiate environment variables and to activate
                     the project's virtual environment by default.
-                    """
+                    """,
+                default = self.dedicated_user
             )
 
             parser.cms_group = parser.add_argument_group(
