@@ -673,7 +673,7 @@ class Installer(object):
                 "zodb_deployment_scheme": "zeo_service",
                 "zeo_pack": True,
                 "purge_temp_files": True,
-                "backup": False,
+                "backup": True,
                 "cherrypy_env_global_config": [
                     '"engine.autoreload_on": False',
                     '"server.log_to_screen": False'
