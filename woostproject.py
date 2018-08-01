@@ -2405,7 +2405,7 @@ class Installer(object):
             # Apache / mod_wsgi log files
             if self.dedicated_user:
                 log_pattern = (
-                    "/home"
+                    "/home/"
                     + self.dedicated_user
                     + "/logs/apache2/%s.log"
                 )
