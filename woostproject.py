@@ -3709,6 +3709,14 @@ class BundleInstaller(Installer):
     class UnbundleCommand(Installer.CopyCommand):
         name = "unbundle"
 
+        preliminary_tasks = [
+            "extract_bundle_to_temp_dir"
+        ] + list(Installer.CopyCommand.preliminary_tasks)
+
+        cleanup_tasks = list(Installer.CopyCommand.cleanup_tasks) + [
+            "delete_bundle_temp_dir"
+        ]
+
         # Warning: this must be a multiple of 4!
         chunk_size = 10920
 
@@ -3717,15 +3725,14 @@ class BundleInstaller(Installer):
             "source_installation"
         ]
 
-        def __call__(self):
+        def extract_bundle_to_temp_dir(self):
             self.installer.heading("Extracting bundle data")
-            temp_dir = mkdtemp()
-            self.source_installation = temp_dir
-            try:
-                self.extract_bundle_data(temp_dir)
-                Installer.CopyCommand.__call__(self)
-            finally:
-                shutil.rmtree(temp_dir)
+            self.source_installation = mkdtemp()
+            os.chmod(self.source_installation, 0755)
+            self.extract_bundle_data(self.source_installation)
+
+        def delete_bundle_temp_dir(self):
+            shutil.rmtree(self.source_installation)
 
         def extract_bundle_data(self, dest):
 
