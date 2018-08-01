@@ -635,6 +635,7 @@ class Installer(object):
         ]
 
         cleanup_tasks = [
+            "restore_original_user"
         ]
 
         tasks = [
@@ -687,6 +688,7 @@ class Installer(object):
         source_installation = None
         source_repository = None
         dedicated_user = None
+        _original_uid = None
         installation_id = None
         alias = None
         package = None
@@ -2625,6 +2627,7 @@ class Installer(object):
                     sys.exit(1)
 
                 self.installer.heading("Setting up the dedicated user")
+                self._original_uid = os.geteuid()
 
                 # Create the user, if necessary
                 try:
@@ -3471,6 +3474,10 @@ class Installer(object):
                         self.alias + ".png"
                     )
                 )
+
+        def restore_original_user(self):
+            if self._original_uid is not None:
+                os.seteuid(self._original_uid)
 
     class MakeCommand(InstallCommand):
 
