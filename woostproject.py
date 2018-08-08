@@ -695,6 +695,8 @@ class Installer(object):
             "create_launcher"
         ]
 
+        skipped_tasks = []
+
         website = None
         environment = "development"
 
@@ -1448,6 +1450,15 @@ class Installer(object):
 
             self.add_argument(
                 parser,
+                "--skip-tasks",
+                help = "Specific tasks to exclude.",
+                nargs = "+",
+                choices = list(self.tasks),
+                dest = "skipped_tasks"
+            )
+
+            self.add_argument(
+                parser,
                 "--recreate-env",
                 help = """
                     If enabled, the installer will delete and recreate the Python
@@ -2127,7 +2138,8 @@ class Installer(object):
                     getattr(self, task)()
 
                 for task in self.tasks:
-                    getattr(self, task)()
+                    if task not in self.skipped_tasks:
+                        getattr(self, task)()
 
             finally:
                 for task in self.cleanup_tasks:
