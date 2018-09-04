@@ -952,7 +952,9 @@ class Installer(object):
                 from cocktail.html import inlinesvg
                 inlinesvg.cache.updatable = True
                 """,
-                lambda cmd: cmd.environment == "development"
+                lambda cmd:
+                    cmd.environment == "development"
+                    and cmd.cocktail_version >= "mezcal"
             ),
             (
                 """
