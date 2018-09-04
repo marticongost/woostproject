@@ -942,7 +942,9 @@ class Installer(object):
                 from cocktail.controllers.filepublication import SASSPreprocessor
                 SASSPreprocessor.ignore_cached_files = True
                 """,
-                lambda cmd: cmd.environment == "development"
+                lambda cmd:
+                    cmd.environment == "development"
+                    and cmd.cocktail_version >= "izarra"
             ),
             (
                 """
