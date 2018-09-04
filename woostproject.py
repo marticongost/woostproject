@@ -1458,6 +1458,7 @@ class Installer(object):
                 help = "Specific tasks to exclude.",
                 nargs = "+",
                 choices = list(self.tasks),
+                default = self.skipped_tasks,
                 dest = "skipped_tasks"
             )
 
