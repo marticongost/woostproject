@@ -687,6 +687,7 @@ class Installer(object):
             "setup_database",
             "copy_uploads",
             "configure_zeo_service",
+            "configure_zeo_pack",
             "configure_temp_files_purging",
             "configure_backup",
             "configure_apache",
