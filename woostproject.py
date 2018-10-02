@@ -212,7 +212,9 @@ class LetsEncryptFeature(Feature):
 
         # Change permissions for the certificates directory
         # (otherwise Apache fails to start)
-        self.installer._sudo("chmod", "755", "/etc/letsencrypt/archive")
+        lets_encrypt_path = "/etc/letsencrypt/archive"
+        self.installer._sudo("mkdir", "-p", lets_encrypt_path)
+        self.installer._sudo("chmod", "755", lets_encrypt_path)
 
         # Cronjob for certificate renewal
         cronjob_script = "/etc/cron.%s/lets-encrypt-renewal" % self.renewal_frequency
