@@ -767,7 +767,7 @@ class Installer(object):
             #!/bin/bash
             PORT=--SETUP-ZEO_PORT--
             echo "Running zeopack on port $PORT"
-            --SETUP-VIRTUAL_ENV_DIR--/bin/zeopack -h localhost -p $PORT -d --SETUP-ZEO_PACK_DAYS--
+            --SETUP-VIRTUAL_ENV_DIR--/bin/zeopack -h 127.0.0.1 -p $PORT -d --SETUP-ZEO_PACK_DAYS--
             echo "Done."
             sync
             """
