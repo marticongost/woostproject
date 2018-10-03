@@ -323,6 +323,7 @@ class Installer(object):
     ports_file = os.path.join(config_dir, "ports")
     legacy_ports_file = os.path.expanduser("~/.woost-ports")
     first_automatic_port = 14000
+    __os_release = None
 
     def __init__(self):
 
@@ -392,6 +393,17 @@ class Installer(object):
         command = self.commands[args.command]
         command.process_parameters(vars(args))
         command()
+
+    def get_os_release(self):
+
+        if self.__os_release is None:
+            try:
+                self.__os_release = \
+                    subprocess.check_output(["lsb_release", "-r", "-s"])
+            except subprocess.CalledProcessError:
+                raise OSError("Can't determine operating system release")
+
+        return self.__os_release
 
     def _exec(self, *args, **kwargs):
         self.message(" ".join(args), fg = "slate_blue")
