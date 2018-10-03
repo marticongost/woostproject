@@ -156,7 +156,8 @@ class CoreFeature(Feature):
         "python-dev",
         "python-pip",
         "python-setuptools",
-        "python-imaging",
+        ("python-imaging", lambda inst: inst.get_os_release() < "18."),
+        ("python-pil", lambda inst: inst.get_os_release() >= "18."),
         "libxml2-dev",
         "libxslt1-dev",
         "lib32z1-dev"
