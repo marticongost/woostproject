@@ -755,6 +755,7 @@ class Installer(object):
         source_installation = None
         source_repository = None
         dedicated_user = None
+        dedicated_user_shell = "/bin/bash"
         _original_uid = None
         installation_id = None
         alias = None
@@ -1555,6 +1556,17 @@ class Installer(object):
                     the project's virtual environment by default.
                     """,
                 default = self.dedicated_user
+            )
+
+            self.add_argument(
+                parser.loc_group,
+                "--dedicated-user-shell",
+                help = """
+                    If a dedicated system user for the project is created with
+                    the --dedicated-user option, this parameter sets which
+                    shell it should be assigned. Defaults to %s.
+                    """ % self.dedicated_user_shell,
+                default = self.dedicated_user_shell
             )
 
             parser.cms_group = parser.add_argument_group(
@@ -2649,7 +2661,8 @@ class Installer(object):
                     self.installer._sudo(
                         self.useradd_script,
                         "-m", # Create the home directory
-                        "-U", # Create a group for the user
+                        "-U", # Create a group for the user,
+                        "-s", self.dedicated_user_shell, # Set the user's shell
                         self.dedicated_user
                     )
                     user_info = getpwnam(self.dedicated_user)
