@@ -593,7 +593,19 @@ class Installer(object):
             return tuple(match.group(1).split("."))
 
     def _install_packages(self, *packages):
-        self._sudo("apt-get", "install", "-y", *packages)
+
+        pkg_list = []
+
+        for pkg in packages:
+            if isinstance(pkg, tuple):
+                assert len(pkg) == 2
+                pkg_name, condition = pkg
+                if condition(self):
+                    pkg_list.append(pkg_name)
+            else:
+                pkg_list.append(pkg)
+
+        self._sudo("apt-get", "install", "-y", *pkg_list)
 
     def _install_repository(self, repository):
         self._sudo("add-apt-repository", "-y", "-u", repository)
