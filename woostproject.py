@@ -772,9 +772,13 @@ class Installer(object):
             "nethack": (2, 9),
             "outrun": (2, 10),
             "pacman": (2, 11),
-            "quake": (2, 12)
+            "quake": (2, 12),
+            "admin": (3, 0)
         }
         woost_version = "quake"
+        woost_dependency_specifiers = {
+            "admin": ">=3.0b1,<3.1"
+        }
         woost_version_specifier = None
         hostname = None
         deployment_scheme = None
@@ -879,7 +883,8 @@ class Installer(object):
             "nethack": "komovica",
             "outrun": "komovica",
             "pacman": "lambanog",
-            "quake": "mezcal"
+            "quake": "mezcal",
+            "admin": "ui2"
         }
         linked_system_packages = ["PIL", "PILcompat"]
         cocktail_repository = "https://bitbucket.org/whads/cocktail"
@@ -2247,12 +2252,18 @@ class Installer(object):
                     )
 
             if not self.woost_version_specifier:
-                release = self.woost_releases[self.woost_version]
-                next_release = (release[0], release[1] + 1)
-                self.woost_version_specifier = ">=%s,<%s" % (
-                    ("%d.%d" % release),
-                    ("%d.%d" % next_release)
-                )
+
+                # Custom specifier (for alpha or beta versions)
+                self.woost_version_specifier = \
+                    self.woost_dependency_specifiers.get(self.woost_version)
+
+                if not self.woost_version_specifier:
+                    release = self.woost_releases[self.woost_version]
+                    next_release = (release[0], release[1] + 1)
+                    self.woost_version_specifier = ">=%s,<%s" % (
+                        ("%d.%d" % release),
+                        ("%d.%d" % next_release)
+                    )
 
             if not self.alias:
                 self.alias = self.website
