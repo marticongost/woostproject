@@ -2241,7 +2241,7 @@ class Installer(object):
 
             if not self.source_repository and self.source_installation:
                 self.source_repository = \
-                    self.source_installation + self.website.lower()
+                    self.source_installation.rstrip("/") + "/" + self.website.lower()
                 if (
                     ":" in self.source_repository
                     or "@" in self.source_repository
