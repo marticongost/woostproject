@@ -3074,7 +3074,8 @@ class Installer(object):
                 dest = os.path.join(self.project_dir, "upload")
                 self.installer._exec(
                     "rsync",
-                    src,
+                    "-r",
+                    src.rstrip("/") + "/",
                     dest,
                     "--exclude", "temp"
                 )
