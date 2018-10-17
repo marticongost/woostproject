@@ -2836,7 +2836,7 @@ class Installer(object):
             ):
                 self.installer._exec(
                     "hg", "clone",
-                    os.path.join(self.source_installation, self.website.lower()),
+                    self.source_repository,
                     self.project_outer_dir
                 )
 
