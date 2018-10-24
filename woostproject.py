@@ -1050,6 +1050,18 @@ class Installer(object):
 
         zeo_service_script_template = """
             #!/bin/bash
+            ### BEGIN INIT INFO
+            # Provides:            --SETUP-ALIAS--
+            # Required-Start:      $remote_fs $syslog
+            # Required-Stop:       $remote_fs $syslog
+            # Should-Start:        $local_fs
+            # Should-Stop:         $local_fs
+            # Default-Start:       2 3 4 5
+            # Default-Stop:        0 1 6
+            # Short-Description:   Start zeo daemon
+            # Description:         Start up zeo
+            ### END INIT INFO
+
             DESC="--SETUP-ALIAS-- ZEO"
             NAME=--SETUP-ZEO_SERVICE_NAME--
             USER=--SETUP-ZEO_SERVICE_USER--
