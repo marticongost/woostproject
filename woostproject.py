@@ -3509,6 +3509,7 @@ class Installer(object):
             os.chmod(self.desktop_file, 0774)
 
             # Launcher icon
+            from PIL import Image
             for icon_path in self.launcher_icons:
                 shutil.copy(
                     icon_path,
