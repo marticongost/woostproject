@@ -156,7 +156,8 @@ class CoreFeature(Feature):
         "python-dev",
         "python-pip",
         "python-setuptools",
-        "python-imaging",
+        ("python-imaging", lambda inst: inst.get_os_release() < "18."),
+        ("python-pil", lambda inst: inst.get_os_release() >= "18."),
         "libxml2-dev",
         "libxslt1-dev",
         "lib32z1-dev"
@@ -212,7 +213,9 @@ class LetsEncryptFeature(Feature):
 
         # Change permissions for the certificates directory
         # (otherwise Apache fails to start)
-        self.installer._sudo("chmod", "755", "/etc/letsencrypt/archive")
+        lets_encrypt_path = "/etc/letsencrypt/archive"
+        self.installer._sudo("mkdir", "-p", lets_encrypt_path)
+        self.installer._sudo("chmod", "755", lets_encrypt_path)
 
         # Cronjob for certificate renewal
         cronjob_script = "/etc/cron.%s/lets-encrypt-renewal" % self.renewal_frequency
@@ -321,6 +324,7 @@ class Installer(object):
     ports_file = os.path.join(config_dir, "ports")
     legacy_ports_file = os.path.expanduser("~/.woost-ports")
     first_automatic_port = 14000
+    __os_release = None
 
     def __init__(self):
 
@@ -390,6 +394,17 @@ class Installer(object):
         command = self.commands[args.command]
         command.process_parameters(vars(args))
         command()
+
+    def get_os_release(self):
+
+        if self.__os_release is None:
+            try:
+                self.__os_release = \
+                    subprocess.check_output(["lsb_release", "-r", "-s"])
+            except subprocess.CalledProcessError:
+                raise OSError("Can't determine operating system release")
+
+        return self.__os_release
 
     def _exec(self, *args, **kwargs):
         self.message(" ".join(args), fg = "slate_blue")
@@ -579,7 +594,19 @@ class Installer(object):
             return tuple(match.group(1).split("."))
 
     def _install_packages(self, *packages):
-        self._sudo("apt-get", "install", "-y", *packages)
+
+        pkg_list = []
+
+        for pkg in packages:
+            if isinstance(pkg, tuple):
+                assert len(pkg) == 2
+                pkg_name, condition = pkg
+                if condition(self):
+                    pkg_list.append(pkg_name)
+            else:
+                pkg_list.append(pkg)
+
+        self._sudo("apt-get", "install", "-y", *pkg_list)
 
     def _install_repository(self, repository):
         self._sudo("add-apt-repository", "-y", "-u", repository)
@@ -685,6 +712,7 @@ class Installer(object):
             "setup_database",
             "copy_uploads",
             "configure_zeo_service",
+            "configure_zeo_pack",
             "configure_temp_files_purging",
             "configure_backup",
             "configure_apache",
@@ -727,6 +755,7 @@ class Installer(object):
         source_installation = None
         source_repository = None
         dedicated_user = None
+        dedicated_user_shell = "/bin/bash"
         _original_uid = None
         installation_id = None
         alias = None
@@ -743,9 +772,13 @@ class Installer(object):
             "nethack": (2, 9),
             "outrun": (2, 10),
             "pacman": (2, 11),
-            "quake": (2, 12)
+            "quake": (2, 12),
+            "admin": (3, 0)
         }
         woost_version = "quake"
+        woost_dependency_specifiers = {
+            "admin": ">=3.0b1,<3.1"
+        }
         woost_version_specifier = None
         hostname = None
         deployment_scheme = None
@@ -764,7 +797,7 @@ class Installer(object):
             #!/bin/bash
             PORT=--SETUP-ZEO_PORT--
             echo "Running zeopack on port $PORT"
-            --SETUP-VIRTUAL_ENV_DIR--/bin/zeopack -h localhost -p $PORT -d --SETUP-ZEO_PACK_DAYS--
+            --SETUP-VIRTUAL_ENV_DIR--/bin/zeopack -h 127.0.0.1 -p $PORT -d --SETUP-ZEO_PACK_DAYS--
             echo "Done."
             sync
             """
@@ -850,7 +883,8 @@ class Installer(object):
             "nethack": "komovica",
             "outrun": "komovica",
             "pacman": "lambanog",
-            "quake": "mezcal"
+            "quake": "mezcal",
+            "admin": "ui2"
         }
         linked_system_packages = ["PIL", "PILcompat"]
         cocktail_repository = "https://bitbucket.org/whads/cocktail"
@@ -1016,6 +1050,18 @@ class Installer(object):
 
         zeo_service_script_template = """
             #!/bin/bash
+            ### BEGIN INIT INFO
+            # Provides:            --SETUP-ALIAS--
+            # Required-Start:      $remote_fs $syslog
+            # Required-Stop:       $remote_fs $syslog
+            # Should-Start:        $local_fs
+            # Should-Stop:         $local_fs
+            # Default-Start:       2 3 4 5
+            # Default-Stop:        0 1 6
+            # Short-Description:   Start zeo daemon
+            # Description:         Start up zeo
+            ### END INIT INFO
+
             DESC="--SETUP-ALIAS-- ZEO"
             NAME=--SETUP-ZEO_SERVICE_NAME--
             USER=--SETUP-ZEO_SERVICE_USER--
@@ -1527,6 +1573,17 @@ class Installer(object):
                     the project's virtual environment by default.
                     """,
                 default = self.dedicated_user
+            )
+
+            self.add_argument(
+                parser.loc_group,
+                "--dedicated-user-shell",
+                help = """
+                    If a dedicated system user for the project is created with
+                    the --dedicated-user option, this parameter sets which
+                    shell it should be assigned. Defaults to %s.
+                    """ % self.dedicated_user_shell,
+                default = self.dedicated_user_shell
             )
 
             parser.cms_group = parser.add_argument_group(
@@ -2196,7 +2253,7 @@ class Installer(object):
 
             if not self.source_repository and self.source_installation:
                 self.source_repository = \
-                    self.source_installation + self.website.lower()
+                    self.source_installation.rstrip("/") + "/" + self.website.lower()
                 if (
                     ":" in self.source_repository
                     or "@" in self.source_repository
@@ -2207,12 +2264,18 @@ class Installer(object):
                     )
 
             if not self.woost_version_specifier:
-                release = self.woost_releases[self.woost_version]
-                next_release = (release[0], release[1] + 1)
-                self.woost_version_specifier = ">=%s,<%s" % (
-                    ("%d.%d" % release),
-                    ("%d.%d" % next_release)
-                )
+
+                # Custom specifier (for alpha or beta versions)
+                self.woost_version_specifier = \
+                    self.woost_dependency_specifiers.get(self.woost_version)
+
+                if not self.woost_version_specifier:
+                    release = self.woost_releases[self.woost_version]
+                    next_release = (release[0], release[1] + 1)
+                    self.woost_version_specifier = ">=%s,<%s" % (
+                        ("%d.%d" % release),
+                        ("%d.%d" % next_release)
+                    )
 
             if not self.alias:
                 self.alias = self.website
@@ -2623,7 +2686,8 @@ class Installer(object):
                     self.installer._sudo(
                         self.useradd_script,
                         "-m", # Create the home directory
-                        "-U", # Create a group for the user
+                        "-U", # Create a group for the user,
+                        "-s", self.dedicated_user_shell, # Set the user's shell
                         self.dedicated_user
                     )
                     user_info = getpwnam(self.dedicated_user)
@@ -2784,7 +2848,7 @@ class Installer(object):
             ):
                 self.installer._exec(
                     "hg", "clone",
-                    os.path.join(self.source_installation, self.website.lower()),
+                    self.source_repository,
                     self.project_outer_dir
                 )
 
@@ -3022,7 +3086,8 @@ class Installer(object):
                 dest = os.path.join(self.project_dir, "upload")
                 self.installer._exec(
                     "rsync",
-                    src,
+                    "-r",
+                    src.rstrip("/") + "/",
                     dest,
                     "--exclude", "temp"
                 )
@@ -3444,6 +3509,7 @@ class Installer(object):
             os.chmod(self.desktop_file, 0774)
 
             # Launcher icon
+            from PIL import Image
             for icon_path in self.launcher_icons:
                 shutil.copy(
                     icon_path,
