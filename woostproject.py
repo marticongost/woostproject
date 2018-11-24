@@ -2312,7 +2312,9 @@ class Installer(object):
                 self.port
             )
 
-            # Cocktail paths
+            # Cocktail
+            self.cocktail_version = self.cocktail_versions[self.woost_version]
+
             if not self.cocktail_outer_dir:
                 self.cocktail_outer_dir = os.path.join(
                     self.root_dir,
@@ -2721,8 +2723,6 @@ class Installer(object):
                 f.write(self.process_template(self.project_env_template))
 
         def install_libs(self):
-
-            self.cocktail_version = self.cocktail_versions[self.woost_version]
 
             # TODO: Clone and setup PyStemmer with support for catalan
 
