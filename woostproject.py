@@ -430,6 +430,22 @@ class Installer(object):
                 temp_file.write(contents)
             self._sudo("cp", temp_file_name, target)
 
+    def _install_cronjob(self, cronjob, user):
+        if user:
+            self._exec(
+                "(crontab -l -u %s; echo '%s') | crontab -u %s -" % (
+                    user,
+                    cronjob,
+                    user
+                ),
+                shell = True
+            )
+        else:
+            self._exec(
+                "(crontab -l; echo '%s') | crontab -" % cronjob,
+                shell = True
+            )
+
     def _get_service_script_path(self, name):
         return os.path.join("/etc", "init.d", name)
 
@@ -3147,10 +3163,7 @@ class Installer(object):
 
                 os.chmod(zeo_pack_script, 0744)
                 cronjob = "%s %s" % (self.zeo_pack_frequency, zeo_pack_script)
-                self.installer._exec(
-                    "(crontab -l; echo '%s') | crontab -" % cronjob,
-                    shell = True
-                )
+                self.installer._install_cronjob(cronjob, self.dedicated_user)
 
         def configure_temp_files_purging(self):
 
@@ -3169,10 +3182,7 @@ class Installer(object):
 
                 os.chmod(purge_script, 0744)
                 cronjob = "%s %s" % (self.purge_temp_files_frequency, purge_script)
-                self.installer._exec(
-                    "(crontab -l; echo '%s') | crontab -" % cronjob,
-                    shell = True
-                )
+                self.installer._install_cronjob(cronjob, self.dedicated_user)
 
         def configure_backup(self):
 
@@ -3191,10 +3201,7 @@ class Installer(object):
 
                 os.chmod(backup_script, 0744)
                 cronjob = "%s %s" % (self.backup_frequency, backup_script)
-                self.installer._exec(
-                    "(crontab -l; echo '%s') | crontab -" % cronjob,
-                    shell = True
-                )
+                self.installer._install_cronjob(cronjob, self.dedicated_user)
 
         def obtain_lets_encrypt_certificate(self):
             if self.lets_encrypt:
