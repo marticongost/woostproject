@@ -203,7 +203,7 @@ class LetsEncryptFeature(Feature):
     description = "Obtain and renew free SSL certificates"
     repositories = ["ppa:certbot/certbot"]
     packages = ["python-certbot-apache"]
-    apache_modules = ["headers"]
+    apache_modules = ["headers", "ssl"]
 
     renewal_frequency = "weekly"
     renewal_command = "/usr/bin/certbot renew"
