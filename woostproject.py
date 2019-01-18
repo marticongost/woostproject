@@ -3518,18 +3518,21 @@ class Installer(object):
             # Launcher icon
             from PIL import Image
             for icon_path in self.launcher_icons:
+                icon_size_path = os.path.join(
+                    os.path.expanduser("~"),
+                    ".local",
+                    "share",
+                    "icons",
+                    "hicolor",
+                    "%dx%d" % Image.open(icon_path).size,
+                    "apps"
+                )
+                if not os.path.exists(icon_size_path):
+                    os.makedirs(icon_size_path)
+
                 shutil.copy(
                     icon_path,
-                    os.path.join(
-                        os.path.expanduser("~"),
-                        ".local",
-                        "share",
-                        "icons",
-                        "hicolor",
-                        "%dx%d" % Image.open(icon_path).size,
-                        "apps",
-                        self.alias + ".png"
-                    )
+                    os.path.join(icon_size_path, self.alias + ".png")
                 )
 
         def restore_original_user(self):
