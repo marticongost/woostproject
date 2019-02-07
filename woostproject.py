@@ -3021,9 +3021,8 @@ class Installer(object):
             with self.zeo_process():
                 self._python(
                     """
-                    from %s.scripts.shell import config, datastore
-                    open("/tmp/debug", "a").write(config.websites[0].hosts[0] + "\\n")
-                    config.websites[0].hosts[0] = "%s"
+                    from %s.scripts.shell import Website, datastore
+                    Website.select()[0].hosts[0] = "%s"
                     datastore.commit()
                     """
                     % (self.package, self.hostname)
