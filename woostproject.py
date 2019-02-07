@@ -1507,7 +1507,7 @@ class Installer(object):
                     The tasks to execute. Useful to skip certain tasks when
                     ammending or fixing a previous installation. Default
                     sequence: %s
-                    """ % " ".join(self.tasks),
+                    """ % "\n".join(self.tasks),
                 nargs = "+",
                 metavar = "task",
                 choices = list(self.tasks),
@@ -1519,6 +1519,7 @@ class Installer(object):
                 "--skip-tasks",
                 help = "Specific tasks to exclude.",
                 nargs = "+",
+                metavar = "task",
                 choices = list(self.tasks),
                 default = self.skipped_tasks,
                 dest = "skipped_tasks"
