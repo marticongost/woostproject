@@ -722,6 +722,7 @@ class Installer(object):
             "create_project_directories",
             "create_virtual_environment",
             "install_libs",
+            "install_woost_extensions",
             "create_project_skeleton",
             "write_project_settings",
             "install_website",
@@ -796,6 +797,9 @@ class Installer(object):
             "admin": ">=3.0b1,<3.1"
         }
         woost_version_specifier = None
+        woost_extensions = []
+        default_woost_extensions_repository = \
+            "https://bitbucket.org/whads/woost.extensions.%s"
         hostname = None
         deployment_scheme = None
         modify_hosts_file = False
@@ -1631,6 +1635,21 @@ class Installer(object):
                     """ % self.woost_version,
                 choices = sorted(self.woost_releases),
                 default = self.woost_version
+            )
+
+            self.add_argument(
+                parser.cms_group,
+                "--woost-extensions",
+                nargs = "+",
+                help = """
+                    A list of Woost extension packages to install. Note that
+                    this only works for Woost3 style extensions.%s
+                    """ % (
+                        ('Defaults to "%s"' % " ".join(self.woost_extensions))
+                        if self.woost_extensions
+                        else ""
+                    ),
+                default = self.woost_extensions
             )
 
             parser.deployment_group = parser.add_argument_group(
@@ -2836,6 +2855,33 @@ class Installer(object):
                 )
 
             self.setup_python_package(self.woost_outer_dir)
+
+        def install_woost_extensions(self):
+
+            # Clone and setup woost extensions
+            for ext in self.woost_extensions:
+
+                ext_parts = ext.split(":", 1)
+                if len(ext_parts) == 2:
+                    ext_name, ext_repository = ext_parts
+                else:
+                    ext_name = ext
+                    ext_repository = (
+                        self.default_woost_extensions_repository
+                        % ext_name
+                    )
+
+                self.installer.heading("Installing woost.extensions.%s" % ext_name)
+                ext_dir = os.path.join(self.root_dir, "woost-" + ext_name)
+
+                if not os.path.exists(ext_dir):
+                    self.installer._exec(
+                        "hg", "clone",
+                        ext_repository,
+                        ext_dir
+                    )
+
+                self.setup_python_package(ext_dir)
 
         def setup_python_package(self, package_root):
             subprocess.Popen(
