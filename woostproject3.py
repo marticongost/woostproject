@@ -1094,7 +1094,7 @@ class Installer(object):
         mod_wsgi_express_service_template = """
             #!/bin/bash
             ### BEGIN INIT INFO
-            # Provides:            --SETUP-ALIAS--
+            # Provides:            --SETUP-MOD_WSGI_EXPRESS_SERVICE_NAME--
             # Required-Start:      $remote_fs $syslog
             # Required-Stop:       $remote_fs $syslog
             # Should-Start:        $local_fs
@@ -1113,7 +1113,7 @@ class Installer(object):
         mod_wsgi_express_cacheserver_service_template = """
             #!/bin/bash
             ### BEGIN INIT INFO
-            # Provides:            --SETUP-ALIAS--
+            # Provides:            --SETUP-MOD_WSGI_EXPRESS_CACHESERVER_SERVICE_NAME--
             # Required-Start:      $remote_fs $syslog
             # Required-Stop:       $remote_fs $syslog
             # Should-Start:        $local_fs
@@ -2613,7 +2613,9 @@ class Installer(object):
                 if self.deployment_scheme == "mod_wsgi_express":
                     self.mod_wsgi_express_service_name = self.alias + "-httpd"
                     self.mod_wsgi_express_root = os.path.join(
-                        self.root_dir,
+                        self.workspace
+                            if self.dedicated_user
+                            else self.root_dir,
                         "httpd"
                     )
 
@@ -2621,7 +2623,9 @@ class Installer(object):
                         self.mod_wsgi_express_cacheserver_service_name = \
                             self.alias + "-cache-httpd"
                         self.mod_wsgi_express_cacheserver_root = os.path.join(
-                            self.root_dir,
+                            self.workspace
+                                if self.dedicated_user
+                                else self.root_dir,
                             "cache-httpd"
                         )
 
