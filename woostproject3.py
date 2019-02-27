@@ -1013,31 +1013,7 @@ class Installer(object):
                 rendering_cache.storage = cache_storage
                 rendering_cache.verbose = True
                 """,
-                lambda cmd: (
-                    cmd.cache_enabled
-                    and (
-                        cmd.environment != "development"
-                        or cmd.deployment_scheme == "mod_wsgi"
-                    )
-                )
-            ),
-            (
-                """
-                # Cache
-                from cocktail.caching import RESTCacheStorage
-                cache_storage = RESTCacheStorage("http://localhost:--SETUP-CACHE_SERVER_PORT--")
-                app.cache.storage = cache_storage
-                app.cache.verbose = True
-
-                from cocktail.html import rendering_cache
-                rendering_cache.storage = cache_storage
-                rendering_cache.verbose = True
-                """,
-                lambda cmd: (
-                    cmd.cache_enabled
-                    and cmd.environment == "development"
-                    and cmd.deployment_scheme != "mod_wsgi"
-                )
+                lambda cmd: cmd.cache_enabled
             )
         ]
 
