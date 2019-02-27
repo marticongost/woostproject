@@ -2936,19 +2936,13 @@ class Installer(object):
                 self.setup_python_package(ext_dir)
 
         def setup_python_package(self, package_root):
-            subprocess.Popen(
-                "cd %s "
-                "&& source %s "
-                "&& python setup.py develop "
-                "--find-links=%s"
-                % (
-                    package_root,
-                    os.path.join(self.virtual_env_dir, "bin", "activate"),
-                    self.python_packages_url
-                ),
-                shell = True,
-                executable = "/bin/bash"
-            ).wait()
+            self.installer._exec(
+                self.python_bin,
+                os.path.join(package_root, "setup.py"),
+                "develop",
+                "--find-links=" + self.python_packages_url,
+                cwd = package_root
+            )
 
         def create_project_skeleton(self):
 
