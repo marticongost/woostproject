@@ -890,7 +890,6 @@ class Installer(object):
         cocktail_versions = {
             "py3": "py3"
         }
-        linked_system_packages = ["PIL", "PILcompat"]
         cocktail_repository = "https://bitbucket.org/whads/cocktail"
         woost_repository = "https://bitbucket.org/whads/woost"
         var_reg_expr = re.compile(r"--SETUP-(?P<key>[A-Z0-9_]+)--")
@@ -2805,20 +2804,6 @@ class Installer(object):
 
             # Install ipython
             self.pip_install("ipython")
-
-            # Link system packages into the virtual environment
-            # (compiling PIL is out of the question...)
-            for pkg in self.linked_system_packages:
-                self.installer._sudo("ln", "-s",
-                    os.path.join(
-                        "/usr/lib/python3/dist-packages",
-                        pkg
-                    ),
-                    os.path.join(
-                        self.virtual_env_dir,
-                        "lib/python%s/site-packages" % self.python_version
-                    )
-                )
 
             # Create the custom environment activation script
             with open(self.project_env_script, "w") as f:
