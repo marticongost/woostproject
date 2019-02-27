@@ -629,7 +629,7 @@ class Installer(object):
         self._sudo("add-apt-repository", "-y", "-u", repository)
 
     def _install_python_package(self, package):
-        self._sudo("-H", "pip", "install", package)
+        self._sudo("-H", "pip%s" % self.python_version, "install", package)
 
     def _enable_apache_module(self, module):
         self._sudo("a2enmod", module)
@@ -1473,6 +1473,16 @@ class Installer(object):
                 parser,
                 "website",
                 help = "The name of the website to create."
+            )
+
+            self.add_argument(
+                parser,
+                "--python-version",
+                help = """
+                    The Python version to use to create the installation.
+                    Defaults to %s.
+                """ % self.python_version,
+                default = self.python_version
             )
 
             self.add_argument(
@@ -2365,7 +2375,7 @@ class Installer(object):
             self.python_lib_path = os.path.join(
                 self.virtual_env_dir,
                 "lib",
-                "python2.7",
+                "python%s" % self.python_version,
                 "site-packages"
             )
 
