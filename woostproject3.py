@@ -153,11 +153,10 @@ class CoreFeature(Feature):
     installed_by_default = True
     packages = [
         "build-essential",
-        "python-dev",
-        "python-pip",
-        "python-setuptools",
-        ("python-imaging", lambda inst: inst.get_os_release() < "18."),
-        ("python-pil", lambda inst: inst.get_os_release() >= "18."),
+        "python3-dev",
+        "python3-pip",
+        "python3-setuptools",
+        "python3-pil",
         "libxml2-dev",
         "libxslt1-dev",
         "lib32z1-dev"
