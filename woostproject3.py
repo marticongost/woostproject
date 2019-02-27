@@ -2801,6 +2801,12 @@ class Installer(object):
                     self.cocktail_outer_dir,
                     "-u", self.cocktail_version
                 )
+            else:
+                self.installer._exec(
+                    "hg", "update",
+                    "--rev", self.cocktail_version,
+                    cwd = self.cocktail_outer_dir
+                )
 
             self.setup_python_package(self.cocktail_outer_dir)
 
@@ -2815,6 +2821,12 @@ class Installer(object):
                     self.woost_repository,
                     self.woost_outer_dir,
                     "-u", self.woost_version
+                )
+            else:
+                self.installer._exec(
+                    "hg", "update",
+                    "--rev", self.woost_version,
+                    cwd = self.woost_outer_dir
                 )
 
             self.setup_python_package(self.woost_outer_dir)
@@ -2867,20 +2879,24 @@ class Installer(object):
             self.installer.heading("Creating the project skeleton")
 
             # Copy source code from an existing installation using mercurial
-            if (
-                self.source_repository
-                and not os.path.exists(
+            if self.source_repository:
+                if not os.path.exists(
                     os.path.join(self.project_outer_dir, ".hg")
-                )
-            ):
-                clone_cmd = [
-                    "hg", "clone",
-                    self.source_repository,
-                    self.project_outer_dir
-                ]
-                if self.revision:
-                    clone_cmd += ["--rev", self.revision]
-                self.installer._exec(*clone_cmd)
+                ):
+                    clone_cmd = [
+                        "hg", "clone",
+                        self.source_repository,
+                        self.project_outer_dir
+                    ]
+                    if self.revision:
+                        clone_cmd += ["--rev", self.revision]
+                    self.installer._exec(*clone_cmd)
+                else:
+                    self.installer._exec(
+                        "hg", "update",
+                        "--rev", self.revision,
+                        cwd = self.project_outer_dir
+                    )
 
             # Create the package structure
             if not os.path.exists(self.project_outer_dir):
