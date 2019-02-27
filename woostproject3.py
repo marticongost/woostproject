@@ -197,6 +197,11 @@ class ModWSGIFeature(Feature):
     apache_modules = ["wsgi"]
 
 
+class ModWSGIExpressFeature(Feature):
+    description = "Deploy using mod_wsgi_express"
+    packages = ["apache2-dev"]
+
+
 class LetsEncryptFeature(Feature):
 
     description = "Obtain and renew free SSL certificates"
@@ -334,6 +339,7 @@ class Installer(object):
             PDFRendererFeature,
             ApacheFeature,
             ModWSGIFeature,
+            ModWSGIExpressFeature,
             LetsEncryptFeature,
             MercurialFeature,
             LauncherFeature
@@ -735,6 +741,8 @@ class Installer(object):
             "configure_apache",
             "obtain_lets_encrypt_certificate",
             "configure_apache_https",
+            "configure_mod_wsgi_express",
+            "configure_mod_wsgi_express_cache_server",
             "add_hostname_to_hosts_file",
             "create_mercurial_repository",
             "create_launcher"
@@ -757,7 +765,7 @@ class Installer(object):
                 "cherrypy_env_global_config": []
             },
             "production": {
-                "deployment_scheme": "mod_wsgi",
+                "deployment_scheme": "mod_wsgi_express",
                 "zodb_deployment_scheme": "zeo_service",
                 "zeo_pack": True,
                 "purge_temp_files": True,
@@ -1081,6 +1089,44 @@ class Installer(object):
             fi
         """
 
+        mod_wsgi_express_root = None
+        mod_wsgi_express_service_name = None
+        mod_wsgi_express_service_template = """
+            #!/bin/bash
+            ### BEGIN INIT INFO
+            # Provides:            --SETUP-ALIAS--
+            # Required-Start:      $remote_fs $syslog
+            # Required-Stop:       $remote_fs $syslog
+            # Should-Start:        $local_fs
+            # Should-Stop:         $local_fs
+            # Default-Start:       2 3 4 5
+            # Default-Stop:        0 1 6
+            # Short-Description:   Start the Mod WSGI Express daemon for --SETUP-ALIAS--
+            # Description:         Start the Mod WSGI Express daemon for --SETUP-ALIAS--
+            ### END INIT INFO
+
+            --SETUP-MOD_WSGI_EXPRESS_ROOT--/apachectl $1
+        """
+
+        mod_wsgi_express_cacheserver_root = None
+        mod_wsgi_express_cacheserver_service_name = None
+        mod_wsgi_express_cacheserver_service_template = """
+            #!/bin/bash
+            ### BEGIN INIT INFO
+            # Provides:            --SETUP-ALIAS--
+            # Required-Start:      $remote_fs $syslog
+            # Required-Stop:       $remote_fs $syslog
+            # Should-Start:        $local_fs
+            # Should-Stop:         $local_fs
+            # Default-Start:       2 3 4 5
+            # Default-Stop:        0 1 6
+            # Short-Description:   Start the Mod WSGI Express daemon for the cache server of --SETUP-ALIAS--
+            # Description:         Start the Mod WSGI Express daemon for the cache server of --SETUP-ALIAS--
+            ### END INIT INFO
+
+            --SETUP-MOD_WSGI_EXPRESS_CACHESERVER_ROOT--/apachectl $1
+        """
+
         apache_access_log = None
         apache_error_log = None
         apache_log_format = r"%v:%p %h %l %u %t \"%r\" %>s %O \"%{Referer}i\" \"%{User-Agent}i\" %T/%D"
@@ -1325,7 +1371,10 @@ class Installer(object):
                 cd --SETUP-PROJECT_SCRIPTS_DIR--
                 bash --init-file --SETUP-LAUNCHER_TAB_SCRIPT--
                 """,
-                lambda cmd: cmd.deployment_scheme != "mod_wsgi"
+                lambda cmd: cmd.deployment_scheme not in (
+                    "mod_wsgi",
+                    "mod_wsgi_express"
+                )
             ),
             (
                 "cache",
@@ -1338,7 +1387,10 @@ class Installer(object):
                 """,
                 lambda cmd: (
                     cmd.cache_enabled
-                    and cmd.deployment_scheme != "mod_wsgi"
+                    and cmd.deployment_scheme not in (
+                        "mod_wsgi",
+                        "mod_wsgi_express"
+                    )
                 )
             ),
             (
@@ -1642,10 +1694,11 @@ class Installer(object):
                     Choose between different deployment strategies for the
                     application. The default option is to serve the website using
                     apache and mod_rewrite (useful during development). The
-                    mod_wsgi option is better for production environments. The
-                    cherrypy option self hosts the application using a single
-                    process; this can be a useful alternative if installing
-                    apache is not possible or desirable. Defaults to %s.
+                    mod_wsgi or mod_wsgi_express options are better for production
+                    environments. The cherrypy option self hosts the application
+                    using a single process; this can be a useful alternative if
+                    installing apache / mod_wsgi is not possible or desirable.
+                    Defaults to %s.
                     """ % (
                         self.deployment_scheme
                         or ", ".join(
@@ -1653,7 +1706,12 @@ class Installer(object):
                             for env, defaults in self.environments.items()
                         )
                     ),
-                choices = ["mod_rewrite", "mod_wsgi", "cherrypy"],
+                choices = [
+                    "mod_rewrite",
+                    "mod_wsgi",
+                    "mod_wsgi_express",
+                    "cherrypy"
+                ],
                 default = self.deployment_scheme
             )
 
@@ -2482,9 +2540,10 @@ class Installer(object):
                         self.vhost_ssl_certificate_file = \
                             cert_path("chain.pem")
             else:
-                if self.deployment_scheme == "mod_wsgi":
+                if self.deployment_scheme in ("mod_wsgi", "mod_wsgi_express"):
                     sys.stderr.write(
-                        "Deployment with mod_wsgi requires Apache 2.4\n"
+                        "Deployment with mod_wsgi or mod_wsgi_express "
+                        "require Apache 2.4\n"
                     )
                     sys.exit(1)
 
@@ -2523,7 +2582,7 @@ class Installer(object):
                 self.mod_wsgi_log_format = self.apache_log_format
 
             # Mod WSGI
-            if self.deployment_scheme == "mod_wsgi":
+            if self.deployment_scheme in ("mod_wsgi", "mod_wsgi_express"):
 
                 if not self.mod_wsgi_daemon_name:
                     self.mod_wsgi_daemon_name = self.alias
@@ -2550,6 +2609,21 @@ class Installer(object):
 
                 if not self.mod_wsgi_application_group:
                     self.mod_wsgi_application_group = self.alias
+
+                if self.deployment_scheme == "mod_wsgi_express":
+                    self.mod_wsgi_express_service_name = self.alias + "-httpd"
+                    self.mod_wsgi_express_root = os.path.join(
+                        self.root_dir,
+                        "httpd"
+                    )
+
+                    if self.cache_enabled:
+                        self.mod_wsgi_express_cacheserver_service_name = \
+                            self.alias + "-cache-httpd"
+                        self.mod_wsgi_express_cacheserver_root = os.path.join(
+                            self.root_dir,
+                            "cache-httpd"
+                        )
 
             # Terminal profile / launcher
             if not self.terminal_profile:
@@ -2641,11 +2715,13 @@ class Installer(object):
 
             yield "core"
 
-            if self.deployment_scheme == "mod_rewrite":
+            if self.deployment_scheme != "cherrypy":
                 yield "apache"
-            else:
-                yield "apache"
-                yield "modwsgi"
+
+                if self.deployment_scheme == "mod_wsgi":
+                    yield "modwsgi"
+                elif self.deployment_scheme == "mod_wsgi_express":
+                    yield "modwsgiexpress"
 
             if self.lets_encrypt:
                 yield "letsencrypt"
@@ -3337,6 +3413,88 @@ class Installer(object):
                     self.get_apache_vhost_config(https = True)
                 )
                 self.installer._sudo("service", "apache2", "reload")
+
+        def configure_mod_wsgi_express(self):
+
+            if self.deployment_scheme != "mod_wsgi_express":
+                return
+
+            self.installer.heading("Setting up a mod-wsgi-express server")
+            self.pip_install("mod_wsgi")
+            self.installer._exec(
+                os.path.join(
+                    self.virtual_env_dir,
+                    "bin",
+                    "mod_wsgi-express"
+                ),
+                "setup-server",
+                os.path.join(
+                    self.project_scripts_dir,
+                    "wsgiapp.py"
+                ),
+                "--server-root",
+                    self.mod_wsgi_express_root,
+                "--port",
+                    str(self.port),
+                "--user",
+                    self.mod_wsgi_daemon_user,
+                "--group",
+                    self.mod_wsgi_daemon_user,
+                "--processes",
+                    str(self.mod_wsgi_daemon_processes),
+                "--threads",
+                    str(self.mod_wsgi_daemon_threads),
+                "--python-path",
+                    self.python_lib_path,
+                "--maximum-requests",
+                    str(self.mod_wsgi_daemon_maximum_requests),
+                "--setup-only"
+            )
+            self.installer._create_service(
+                self.mod_wsgi_express_service_name,
+                self.process_template(self.mod_wsgi_express_service_template)
+            )
+            self.installer._start_service(self.mod_wsgi_express_service_name)
+
+        def configure_mod_wsgi_express_cache_server(self):
+
+            if not self.cache_enabled:
+                return
+
+            if self.deployment_scheme != "mod_wsgi_express":
+                return
+
+            self.installer.heading("Setting up a mod-wsgi-express cache server")
+            self.pip_install("mod_wsgi")
+            self.installer._exec(
+                os.path.join(
+                    self.virtual_env_dir,
+                    "bin",
+                    "mod_wsgi-express"
+                ),
+                "setup-server",
+                os.path.join(
+                    self.project_scripts_dir,
+                    "cacheserver.py"
+                ),
+                "--server-root", self.mod_wsgi_express_cacheserver_root,
+                "--port", str(self.cache_server_port),
+                "--user", self.mod_wsgi_daemon_user,
+                "--group", self.mod_wsgi_daemon_user,
+                "--processes", "1",
+                "--threads", str(self.cache_server_threads),
+                "--python-path", self.python_lib_path,
+                "--setup-only"
+            )
+            self.installer._create_service(
+                self.mod_wsgi_express_cacheserver_service_name,
+                self.process_template(
+                    self.mod_wsgi_express_cacheserver_service_template
+                )
+            )
+            self.installer._start_service(
+                self.mod_wsgi_express_cacheserver_service_name
+            )
 
         def create_mercurial_repository(self):
 
