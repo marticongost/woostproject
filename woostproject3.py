@@ -3060,6 +3060,10 @@ class Installer(object):
                     os.path.join(self.cocktail_dir, "html", "resources")
                 ),
                 (
+                    "cocktail.ui",
+                    os.path.join(self.cocktail_dir, "ui", "resources")
+                ),
+                (
                     "woost",
                     os.path.join(self.woost_dir, "views", "resources")
                 ),
