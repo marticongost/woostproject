@@ -790,12 +790,9 @@ class Installer(object):
         root_host = None
         default_root_host = "localhost"
         revision = None
-        woost_releases = {
-            "py3": (3, 0)
-        }
-        woost_version = "py3"
-        woost_dependency_specifiers = {}
-        woost_version_specifier = None
+        woost_version = "3.0.dev"
+        woost_dependency_specifier = None
+        woost_release_number = None
         woost_extensions = []
         default_woost_extensions_repository = \
             "https://bitbucket.org/whads/woost.extensions.%s"
@@ -894,8 +891,9 @@ class Installer(object):
         recreate_env = False
         mercurial = False
         python_version = "3.6"
+        cocktail_version = None
         cocktail_versions = {
-            "py3": "py3"
+            "3.0": "2.0.dev"
         }
         cocktail_repository = "https://bitbucket.org/whads/cocktail"
         woost_repository = "https://bitbucket.org/whads/woost"
@@ -945,7 +943,7 @@ class Installer(object):
             setup(
                 name = "--SETUP-WEBSITE--",
                 install_requires = [
-                    "woost--SETUP-WOOST_VERSION_SPECIFIER--"
+                    "woost--SETUP-WOOST_DEPENDENCY_SPECIFIER--"
                 ],
                 packages = find_packages(),
                 include_package_data = True,
@@ -986,9 +984,7 @@ class Installer(object):
                 from cocktail.controllers.filepublication import SASSPreprocessor
                 SASSPreprocessor.ignore_cached_files = True
                 """,
-                lambda cmd:
-                    cmd.environment == "development"
-                    and cmd.cocktail_version >= "izarra"
+                lambda cmd: cmd.environment == "development"
             ),
             (
                 """
@@ -996,9 +992,7 @@ class Installer(object):
                 from cocktail.html import inlinesvg
                 inlinesvg.cache.updatable = True
                 """,
-                lambda cmd:
-                    cmd.environment == "development"
-                    and cmd.cocktail_version >= "mezcal"
+                lambda cmd: cmd.environment == "development"
             ),
             (
                 """
@@ -1650,11 +1644,34 @@ class Installer(object):
                 parser.cms_group,
                 "--woost-version",
                 help = """
-                    The version of Woost that the website will be based on.
-                    Defaults to '%s' (the latest stable version).
+                    The version of Woost that the website will be based on (the
+                    name of a Mercurial branch, tag or bookmark). Defaults to '%s'
+                    (the latest stable branch).
                     """ % self.woost_version,
-                choices = sorted(self.woost_releases),
                 default = self.woost_version
+            )
+
+            self.add_argument(
+                parser.cms_group,
+                "--woost-dependency-specifier",
+                help = """
+                    The dependency specifier for the version of Woost that the
+                    website should use. Defaults to '==VERSION.*', where
+                    VERSION is the value given to the --woost-version
+                    parameter.
+                    """,
+                default = self.woost_dependency_specifier
+            )
+
+            self.add_argument(
+                parser.cms_group,
+                "--cocktail-version",
+                help = """
+                    The version of Cocktail that the website will be based on.
+                    If not set, the installer will attempt to automatically
+                    select the version required by the selected Woost version.
+                    """,
+                default = self.cocktail_version
             )
 
             self.add_argument(
@@ -2325,19 +2342,17 @@ class Installer(object):
                         + self.source_repository.replace(":", "/", 1)
                     )
 
-            if not self.woost_version_specifier:
-
-                # Custom specifier (for alpha or beta versions)
-                self.woost_version_specifier = \
-                    self.woost_dependency_specifiers.get(self.woost_version)
-
-                if not self.woost_version_specifier:
-                    release = self.woost_releases[self.woost_version]
-                    next_release = (release[0], release[1] + 1)
-                    self.woost_version_specifier = ">=%s,<%s" % (
-                        ("%d.%d" % release),
-                        ("%d.%d" % next_release)
+            if not self.woost_release_number:
+                woost_release_number = self.woost_version
+                if woost_release_number.endswith(".dev"):
+                    woost_release_number = (
+                        woost_release_number[:woost_release_number.rfind(".")]
                     )
+                self.woost_release_number = woost_release_number
+
+            if not self.woost_dependency_specifier:
+                self.woost_dependency_specifier= \
+                    "==%s.*" % self.woost_release_number
 
             if not self.alias:
                 self.alias = self.website
@@ -2438,7 +2453,25 @@ class Installer(object):
             )
 
             # Cocktail
-            self.cocktail_version = self.cocktail_versions[self.woost_version]
+            if not self.cocktail_version:
+                woost_version_parts = self.woost_release_number.split(".")
+                while woost_version_parts:
+                    try:
+                        self.cocktail_version = self.cocktail_versions[
+                            ".".join(woost_version_parts)
+                        ]
+                    except KeyError:
+                        woost_version_parts.pop(-1)
+                    else:
+                        break
+
+            if not self.cocktail_version:
+                sys.stderr.write(
+                    "Couldn't determine the required cocktail version. Check "
+                    "your --woost-version parameter, or set --cocktail-version "
+                    "manually\n"
+                )
+                sys.exit(1)
 
             if not self.cocktail_outer_dir:
                 self.cocktail_outer_dir = os.path.join(
