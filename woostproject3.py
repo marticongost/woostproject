@@ -3014,6 +3014,10 @@ class Installer(object):
                     os.path.join(self.woost_dir, "views", "resources")
                 ),
                 (
+                    "woost.admin.ui",
+                    os.path.join(self.woost_dir, "admin", "ui", "resources")
+                ),
+                (
                     self.flat_website_name,
                     os.path.join(self.project_dir, "views", "resources")
                 )
