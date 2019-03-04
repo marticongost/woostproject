@@ -2906,6 +2906,10 @@ class Installer(object):
                 )
             else:
                 self.installer._exec(
+                    "hg", "pull",
+                    cwd = self.cocktail_outer_dir
+                )
+                self.installer._exec(
                     "hg", "update",
                     "--rev", self.cocktail_version,
                     cwd = self.cocktail_outer_dir
@@ -2926,6 +2930,10 @@ class Installer(object):
                     "-u", self.woost_version
                 )
             else:
+                self.installer._exec(
+                    "hg", "pull",
+                    cwd = self.woost_outer_dir
+                )
                 self.installer._exec(
                     "hg", "update",
                     "--rev", self.woost_version,
@@ -2989,6 +2997,10 @@ class Installer(object):
                         clone_cmd += ["--rev", self.revision]
                     self.installer._exec(*clone_cmd)
                 else:
+                    self.installer._exec(
+                        "hg", "pull",
+                        cwd = self.project_outer_dir
+                    )
                     self.installer._exec(
                         "hg", "update",
                         "--rev", self.revision,
