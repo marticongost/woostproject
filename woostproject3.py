@@ -794,7 +794,6 @@ class Installer(object):
             "py3": (3, 0)
         }
         woost_version = "py3"
-        importing_woost2_project = False
         woost_dependency_specifiers = {}
         woost_version_specifier = None
         woost_extensions = []
@@ -1656,15 +1655,6 @@ class Installer(object):
                     """ % self.woost_version,
                 choices = sorted(self.woost_releases),
                 default = self.woost_version
-            )
-
-            self.add_boolean_argument(
-                parser.cms_group,
-                "importing_woost2_project",
-                help = """
-                    Should be enabled when creating a Woost3 copy of a Woost2
-                    project.
-                    """
             )
 
             self.add_argument(
@@ -3103,43 +3093,15 @@ class Installer(object):
 
             with self.zeo_process():
 
-                # Update the database
-                if self.importing_woost2_project:
-                    self._python(
-                        """
-                        import %s.settings
-                        from cocktail.persistence import (
-                            PersistentObject,
-                            SingleValueIndex,
-                            migrate,
-                            datastore
-                        )
-                        from woost import app
-                        app.cache.enabled = False
-
-                        for cls in PersistentObject.derived_schemas(False):
-                            if not cls.indexed:
-                                continue
-                            prev_index = cls.index
-                            if not hasattr(prev_index, "__Broken_state__"):
-                                continue
-                            index = SingleValueIndex()
-                            cls.index = index
-                            for key, value in prev_index.__Broken_state__["_SingleValueIndex__items"].items():
-                                index.add(key, value)
-
-                        PersistentObject.rebuild_indexes(True)
-                        PersistentObject.rebuild_full_text_indexes(True, True)
-                        migrate(True)
-                        datastore.commit()
-                        """
-                        % self.package
-                    )
-
-                # Change the hostname
+                # Apply migrations and change the hostname
                 self._python(
                     """
-                    from %s.scripts.shell import Website, datastore
+                    import %s.settings
+                    from cocktail.persistence import migrate, datastore
+                    from woost import app
+                    from woost.models import Website
+                    app.cache.enabled = False
+                    migrate(True)
                     Website.select()[0].hosts[0] = "%s"
                     datastore.commit()
                     """
