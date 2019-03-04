@@ -2967,6 +2967,11 @@ class Installer(object):
                         ext_repository,
                         ext_dir
                     )
+                else:
+                    self.installer._exec(
+                        "hg", "pull", "-u",
+                        cwd = ext_dir
+                    )
 
                 self.setup_python_package(ext_dir)
 
