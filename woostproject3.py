@@ -2963,7 +2963,6 @@ class Installer(object):
                 if not os.path.exists(ext_dir):
                     self.installer._exec(
                         "hg", "clone",
-                        "--rev", "py3",
                         ext_repository,
                         ext_dir
                     )
