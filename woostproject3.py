@@ -3696,7 +3696,7 @@ class Installer(object):
                 "/usr/bin/gsettings",
                 "list-keys",
                 profile_path % source_profile_uuid
-            ]).split()
+            ]).decode("utf-8").split()
 
             for key in source_profile_keys:
                 custom_value = self.terminal_profile_settings.get(key)
