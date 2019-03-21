@@ -728,7 +728,7 @@ class Installer(object):
             "create_project_directories",
             "create_virtual_environment",
             "install_libs",
-            "install_woost_extensions",
+            "install_extensions",
             "create_project_skeleton",
             "write_project_settings",
             "install_website",
@@ -793,8 +793,8 @@ class Installer(object):
         woost_version = "3.0.dev"
         woost_dependency_specifier = None
         woost_release_number = None
-        woost_extensions = []
-        default_woost_extensions_repository = \
+        extensions = []
+        default_extensions_repository = \
             "https://bitbucket.org/whads/woost.extensions.%s"
         hostname = None
         deployment_scheme = None
@@ -1676,17 +1676,16 @@ class Installer(object):
 
             self.add_argument(
                 parser.cms_group,
-                "--woost-extensions",
+                "--extensions",
                 nargs = "+",
                 help = """
-                    A list of Woost extension packages to install. Note that
-                    this only works for Woost3 style extensions.%s
+                    A list of Woost extension packages to install.%s
                     """ % (
-                        ('Defaults to "%s"' % " ".join(self.woost_extensions))
-                        if self.woost_extensions
+                        ('Defaults to "%s"' % " ".join(self.extensions))
+                        if self.extensions
                         else ""
                     ),
-                default = self.woost_extensions
+                default = self.extensions
             )
 
             parser.deployment_group = parser.add_argument_group(
@@ -2942,10 +2941,10 @@ class Installer(object):
 
             self.setup_python_package(self.woost_outer_dir)
 
-        def install_woost_extensions(self):
+        def install_extensions(self):
 
             # Clone and setup woost extensions
-            for ext in self.woost_extensions:
+            for ext in self.extensions:
 
                 ext_parts = ext.split(":", 1)
                 if len(ext_parts) == 2:
@@ -2953,7 +2952,7 @@ class Installer(object):
                 else:
                     ext_name = ext
                     ext_repository = (
-                        self.default_woost_extensions_repository
+                        self.default_extensions_repository
                         % ext_name
                     )
 
@@ -3197,10 +3196,6 @@ class Installer(object):
 
                 if self.languages:
                     init_command.append("--languages=" + ",".join(self.languages))
-
-                if self.extensions:
-                    for extension in self.extensions:
-                        init_command.extend(["--extension", extension])
 
                 if self.installation_id:
                     init_command.extend([
@@ -3805,16 +3800,6 @@ class Installer(object):
                 "--admin-password",
                 help = "The password for the administrator account.",
                 default = self.admin_password
-            )
-
-            self.add_argument(
-                parser.cms_group,
-                "--extension", "-e",
-                help = """The list of extensions to enable.""",
-                dest = "extensions",
-                metavar = "EXT_NAME",
-                nargs = "+",
-                default = self.extensions
             )
 
             self.add_argument(
