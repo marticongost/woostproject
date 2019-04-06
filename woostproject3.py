@@ -3998,7 +3998,7 @@ class Installer(object):
                         while True:
                             chunk = tar_file.read(self.chunk_size)
                             if chunk:
-                                write(base64.b64encode(chunk))
+                                write(base64.b64encode(chunk).decode("ascii"))
                             else:
                                 write('"""')
                                 break
