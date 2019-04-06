@@ -3004,9 +3004,11 @@ class Installer(object):
                         "hg", "pull",
                         cwd = self.project_outer_dir
                     )
+                    update_cmd = ["hg", "update"]
+                    if self.revision:
+                        update_cmd += ["--rev", self.revision]
                     self.installer._exec(
-                        "hg", "update",
-                        "--rev", self.revision,
+                        *update_cmd,
                         cwd = self.project_outer_dir
                     )
 
