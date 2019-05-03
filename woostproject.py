@@ -771,6 +771,7 @@ class Installer(object):
 
         source_installation = None
         source_repository = None
+        uploads_repository = None
         dedicated_user = None
         dedicated_user_shell = "/bin/bash"
         _original_uid = None
@@ -3127,23 +3128,34 @@ class Installer(object):
 
         def copy_uploads(self):
             if self.source_installation:
-                self.installer.heading("Copying uploads")
-                src = os.path.join(
-                    self.source_installation,
-                    self.website.lower(),
-                    *(
-                        self.package.split(".")
-                        + ["upload"]
-                    )
-                )
                 dest = os.path.join(self.project_dir, "upload")
-                self.installer._exec(
-                    "rsync",
-                    "-r",
-                    src.rstrip("/") + "/",
-                    dest,
-                    "--exclude", "temp"
-                )
+
+                if self.uploads_repository:
+                    self.installer.heading("Linking uploads")
+
+                    for f in os.listdir(self.uploads_repository):
+                        source_file = os.path.join(self.uploads_repository, f)
+                        if os.path.isfile(source_file):
+                            dest_file = os.path.join(dest, f)
+                            if not os.path.exists(dest_file):
+                                os.symlink(source_file, dest_file)
+                else:
+                    self.installer.heading("Copying uploads")
+                    src = os.path.join(
+                        self.source_installation,
+                        self.website.lower(),
+                        *(
+                            self.package.split(".")
+                            + ["upload"]
+                        )
+                    )
+                    self.installer._exec(
+                        "rsync",
+                        "-r",
+                        src.rstrip("/") + "/",
+                        dest,
+                        "--exclude", "temp"
+                    )
 
                 # Create links for static publication
                 with self.zeo_process():
@@ -3675,6 +3687,13 @@ class Installer(object):
                 "--skip-uploads",
                 help = u"""Don't copy uploaded files.""",
                 action = "store_true"
+            )
+
+            self.add_argument(
+                parser.copy_group,
+                "--uploads-repository",
+                help = u"Link file uploads from the given folder, instead of "
+                       u"downloading them"
             )
 
         def copy_database(self):
