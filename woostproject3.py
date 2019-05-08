@@ -3146,6 +3146,7 @@ class Installer(object):
             self.installer._exec(
                 "rsync",
                 "-P",
+                "--update",
                 source_file,
                 dest_file
             )
