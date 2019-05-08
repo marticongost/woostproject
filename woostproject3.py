@@ -396,8 +396,14 @@ class Installer(object):
         return parser
 
     def run_cli(self):
+
         cli = self.create_cli()
         args = cli.parse_args()
+
+        if not args.command:
+            cli.print_help()
+            sys.exit(1)
+
         command = self.commands[args.command]
         command.process_parameters(vars(args))
         command()
