@@ -3161,7 +3161,7 @@ class Installer(object):
                     from woost import app
                     from woost.models import Website
                     app.cache.enabled = False
-                    migrate(True)
+                    migrate(True, True)
                     Website.select()[0].hosts[0] = "%s"
                     datastore.commit()
                     """
