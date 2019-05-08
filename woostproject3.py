@@ -3159,8 +3159,9 @@ class Installer(object):
                     import %s.settings
                     from cocktail.persistence import migrate, datastore
                     from woost import app
-                    from woost.models import Website
+                    from woost.models import Website, extensions_manager
                     app.cache.enabled = False
+                    extensions_manager.import_extensions()
                     migrate(True, True)
                     Website.select()[0].hosts[0] = "%s"
                     datastore.commit()
