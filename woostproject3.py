@@ -21,6 +21,8 @@ from pwd import getpwnam
 from tempfile import mkdtemp
 from contextlib import contextmanager
 
+python_version = "%s.%s" % sys.version_info[:2]
+
 
 class Feature(object):
 
@@ -634,7 +636,7 @@ class Installer(object):
         self._sudo("add-apt-repository", "-y", "-u", repository)
 
     def _install_python_package(self, package):
-        self._sudo("-H", "pip%s" % self.python_version, "install", package)
+        self._sudo("-H", "pip%s" % python_version, "install", package)
 
     def _enable_apache_module(self, module):
         self._sudo("a2enmod", module)
@@ -891,7 +893,6 @@ class Installer(object):
         launcher = "auto"
         recreate_env = False
         mercurial = False
-        python_version = "3.6"
         cocktail_version = None
         cocktail_versions = {
             "3.0": "2.0.dev"
@@ -1493,16 +1494,6 @@ class Installer(object):
                 parser,
                 "website",
                 help = "The name of the website to create."
-            )
-
-            self.add_argument(
-                parser,
-                "--python-version",
-                help = """
-                    The Python version to use to create the installation.
-                    Defaults to %s.
-                """ % self.python_version,
-                default = self.python_version
             )
 
             self.add_argument(
@@ -2412,7 +2403,7 @@ class Installer(object):
             self.python_lib_path = os.path.join(
                 self.virtual_env_dir,
                 "lib",
-                "python%s" % self.python_version,
+                "python%s" % python_version,
                 "site-packages"
             )
 
