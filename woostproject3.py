@@ -2854,23 +2854,26 @@ class Installer(object):
                 from virtualenv import create_environment
 
             # Remove the previous virtual environment
+            env_preserved = False
+
             if any(
                 os.path.exists(os.path.join(self.virtual_env_dir, subfolder))
                 for subfolder in ("bin", "include", "lib", "local", "share")
             ):
                 if not self.recreate_env:
                     self.installer.message("Preserving the existing environment")
-                    return
+                    env_preserved = True
+                else:
+                    self.installer.message("Deleting the current environment")
 
-                self.installer.message("Deleting the current environment")
-
-                for dir in "bin", "include", "lib", "local", "share":
-                    old_dir = os.path.join(self.virtual_env_dir, dir)
-                    if os.path.exists(old_dir):
-                        shutil.rmtree(old_dir)
+                    for dir in "bin", "include", "lib", "local", "share":
+                        old_dir = os.path.join(self.virtual_env_dir, dir)
+                        if os.path.exists(old_dir):
+                            shutil.rmtree(old_dir)
 
             # Create the new virtual environment
-            create_environment(self.virtual_env_dir)
+            if not env_preserved:
+                create_environment(self.virtual_env_dir)
 
             # Upgrade setuptools
             self.pip_install("--upgrade", "setuptools")
