@@ -2361,7 +2361,14 @@ class Installer(object):
                 if self.dedicated_user:
                     self.workspace = "/home/" + self.dedicated_user
                 else:
-                    self.workspace = os.environ["WORKSPACE"]
+                    self.workspace = os.environ.get("WORKSPACE")
+
+                if not self.workspace:
+                    sys.stderr.write(
+                        "Must specify either --workspace or --dedicated-user, "
+                        "or set the WORKSPACE environment variable.\n"
+                    )
+                    sys.exit(1)
 
             if not self.root_host:
                 self.root_host = (
