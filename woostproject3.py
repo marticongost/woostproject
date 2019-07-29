@@ -189,7 +189,8 @@ class ApacheFeature(Feature):
         "rewrite",
         "proxy",
         "proxy_http",
-        "macro"
+        "macro",
+        "expires"
     ]
 
 
@@ -1181,6 +1182,10 @@ class Installer(object):
                     Order deny,allow
                     Allow from all
                 </Location>
+                <Location /resources/>
+                    ExpiresActive On
+                    ExpiresDefault A900
+                </Location>
             </Macro>
 
             <VirtualHost *:80>
@@ -1200,6 +1205,10 @@ class Installer(object):
                 ==SETUP-INCLUDE_VHOST_REDIRECTION_RULES==
                 <Location />
                     Require all granted
+                </Location>
+                <Location /resources/>
+                    ExpiresActive On
+                    ExpiresDefault A900
                 </Location>
             </Macro>
 
