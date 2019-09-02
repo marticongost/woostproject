@@ -1163,20 +1163,22 @@ class Installer(object):
                 CustomLog --SETUP-APACHE_ACCESS_LOG-- "--SETUP-APACHE_LOG_FORMAT--"
                 ErrorLog --SETUP-APACHE_ERROR_LOG--
 
-                RewriteEngine On
-                ProxyPreserveHost On
-                ==SETUP-INCLUDE_VHOST_REDIRECTION_RULES==
                 <Location />
                     Require all granted
                 </Location>
+
                 <Location /resources/>
                     ExpiresActive On
                     ExpiresDefault A900
                 </Location>
+
+                RewriteEngine On
+                ProxyPreserveHost On
             </Macro>
 
             <VirtualHost *:80>
                 Use --SETUP-VHOST_MACRO_NAME--
+                ==SETUP-VHOST_REDIRECTION_RULES==
             </VirtualHost>
             """
 
@@ -1217,12 +1219,24 @@ class Installer(object):
             )
         ]
 
+        vhost_http_to_https_redirection_rules = [
+            (
+                """
+                RewriteCond %{REQUEST_URI} !^/.well-known"
+                RewriteRule (.*) https://--SETUP-HOSTNAME--$1 [R=301]
+                """,
+                lambda cmd: True
+            )
+        ]
+
         vhost_ssl_private_key_file = None
         vhost_ssl_certificate_file = None
 
         vhost_ssl_template = """
             <VirtualHost *:443>
                 Use --SETUP-VHOST_MACRO_NAME--
+                ==SETUP-VHOST_REDIRECTION_RULES==
+
                 SSLEngine On
                 SSLCertificateKeyFile --SETUP-VHOST_SSL_PRIVATE_KEY_FILE--
                 SSLCertificateFile --SETUP-VHOST_SSL_CERTIFICATE_FILE--
@@ -3088,6 +3102,9 @@ class Installer(object):
                 if self.hostname:
                     init_command.extend(["--hostname", self.hostname])
 
+                if self.lets_encrypt:
+                    init_command.extend(["--https", "always"])
+
                 if self.base_id:
                     init_command.extend(["--base-id", str(self.base_id)])
 
@@ -3283,17 +3300,33 @@ class Installer(object):
 
         def get_apache_vhost_config(self, https = False):
 
-            template = self.apache_vhost_template.replace(
-                "==SETUP-INCLUDE_VHOST_REDIRECTION_RULES==",
-                "".join(
-                    rule
-                    for rule, condition in self.vhost_redirection_rules
-                    if condition(self)
-                )
+            main_redirections = "".join(
+                rule
+                for rule, condition in self.vhost_redirection_rules
+                if condition(self)
             )
 
             if https:
-                template += self.vhost_ssl_template
+                http_redirections = "".join(
+                    rule
+                    for rule, condition
+                    in self.vhost_http_to_https_redirection_rules
+                    if condition(self)
+                )
+                https_redirections = main_redirections
+            else:
+                http_redirections = main_redirections
+
+            template = self.apache_vhost_template.replace(
+                "==SETUP-VHOST_REDIRECTION_RULES==",
+                http_redirections
+            )
+
+            if https:
+                template += self.vhost_ssl_template.replace(
+                    "==SETUP-VHOST_REDIRECTION_RULES==",
+                    https_redirections
+                )
 
             if self.deployment_scheme == "mod_wsgi":
                 template += u"\n" + self.mod_wsgi_vhost_template
