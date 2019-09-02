@@ -1156,38 +1156,6 @@ class Installer(object):
 
         vhost_macro_name = None
 
-        apache_2_vhost_template = """
-            <Macro --SETUP-VHOST_MACRO_NAME-->
-                ServerName --SETUP-HOSTNAME--
-                DocumentRoot --SETUP-STATIC_DIR--
-                CustomLog --SETUP-APACHE_ACCESS_LOG-- "--SETUP-APACHE_LOG_FORMAT--"
-                ErrorLog --SETUP-APACHE_ERROR_LOG--
-
-                RewriteEngine On
-
-                ProxyRequests Off
-                <Proxy *>
-                    Order deny,allow
-                    Allow from all
-                </Proxy>
-                ProxyPreserveHost On
-                SetEnv proxy-nokeepalive 1
-                ==SETUP-INCLUDE_VHOST_REDIRECTION_RULES==
-                <Location />
-                    Order deny,allow
-                    Allow from all
-                </Location>
-                <Location /resources/>
-                    ExpiresActive On
-                    ExpiresDefault A900
-                </Location>
-            </Macro>
-
-            <VirtualHost *:80>
-                Use --SETUP-VHOST_MACRO_NAME--
-            </VirtualHost>
-            """
-
         apache_2_4_vhost_template = """
             <Macro --SETUP-VHOST_MACRO_NAME-->
                 ServerName --SETUP-HOSTNAME--
@@ -2514,21 +2482,11 @@ class Installer(object):
                             cert_path("cert.pem")
                         self.vhost_ssl_certificate_file = \
                             cert_path("chain.pem")
-            else:
-                if self.deployment_scheme == "mod_wsgi":
-                    sys.stderr.write(
-                        "Deployment with mod_wsgi requires Apache 2.4\n"
-                    )
-                    sys.exit(1)
-
-                if self.lets_encrypt:
-                    sys.stderr.write(
-                        "Lets Encrypt integration is only available with "
-                        "Apache 2.4\n"
-                    )
-                    sys.exit(1)
-
-                self.apache_vhost_template = self.apache_2_vhost_template
+            elif self.deployment_scheme != "cherrypy":
+                sys.stderr.write(
+                    "Deployment with Apache requires Apache 2.4\n"
+                )
+                sys.exit(1)
 
             # Apache / mod_wsgi log files
             if self.dedicated_user:
