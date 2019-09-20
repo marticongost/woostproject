@@ -113,7 +113,7 @@ class Feature(object):
 
     @property
     def version_file(self):
-        return os.path.join(self.installer.config_dir, "features", self.id)
+        return os.path.join(self.installer.config_dir, "features3", self.id)
 
     def write_version(self):
         self.installer._sudo_write(self.version_file, str(self.version))
@@ -366,8 +366,9 @@ class Installer(object):
         self.commands = commands
 
     def require_config_dir(self):
+
         if not os.path.exists(self.config_dir):
-            self._sudo("mkdir", "-p", os.path.join(self.config_dir, "features"))
+            self._sudo("mkdir", "-p", self.config_dir)
 
             # Legacy support: copy ~/.woost-ports to /etc/woost/ports
             if os.path.exists(self.legacy_ports_file):
@@ -377,6 +378,8 @@ class Installer(object):
                 self._sudo("touch", self.ports_file)
 
             self._sudo("chmod", "777", self.ports_file)
+
+        self._sudo("mkdir", "-p", os.path.join(self.config_dir, "features3"))
 
     def create_cli(self):
         parser = ArgumentParser()
