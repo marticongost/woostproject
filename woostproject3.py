@@ -113,7 +113,7 @@ class Feature(object):
 
     @property
     def version_file(self):
-        return os.path.join(self.installer.config_dir, "features3", self.id)
+        return os.path.join(self.installer.config_dir, "features", self.id)
 
     def write_version(self):
         self.installer._sudo_write(self.version_file, str(self.version))
@@ -150,7 +150,7 @@ class Feature(object):
         return installed_version, new_version
 
 
-class CoreFeature(Feature):
+class Core3Feature(Feature):
     description = "Basic packages required to install Woost projects."
     installed_by_default = True
     packages = [
@@ -338,7 +338,7 @@ class Installer(object):
         self.features = OrderedDict()
 
         for feature_class in (
-            CoreFeature,
+            Core3Feature,
             PDFRendererFeature,
             ApacheFeature,
             ModWSGIFeature,
@@ -369,6 +369,7 @@ class Installer(object):
 
         if not os.path.exists(self.config_dir):
             self._sudo("mkdir", "-p", self.config_dir)
+            self._sudo("mkdir", "-p", os.path.join(self.config_dir, "features"))
 
             # Legacy support: copy ~/.woost-ports to /etc/woost/ports
             if os.path.exists(self.legacy_ports_file):
@@ -378,8 +379,6 @@ class Installer(object):
                 self._sudo("touch", self.ports_file)
 
             self._sudo("chmod", "777", self.ports_file)
-
-        self._sudo("mkdir", "-p", os.path.join(self.config_dir, "features3"))
 
     def create_cli(self):
         parser = ArgumentParser()
@@ -2727,7 +2726,7 @@ class Installer(object):
 
         def get_required_features(self):
 
-            yield "core"
+            yield "core3"
 
             if self.deployment_scheme != "cherrypy":
                 yield "apache"
