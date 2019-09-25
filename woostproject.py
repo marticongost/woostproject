@@ -708,6 +708,8 @@ class Installer(object):
 
     class InstallCommand(Command):
 
+        _is_child_process = False
+
         preliminary_tasks = [
             "apply_environment_presets",
             "update_features",
@@ -2232,8 +2234,9 @@ class Installer(object):
                         getattr(self, task)()
 
             finally:
-                for task in self.cleanup_tasks:
-                    getattr(self, task)()
+                if not self._is_child_process:
+                    for task in self.cleanup_tasks:
+                        getattr(self, task)()
 
         def add_task(self, task, after = None, before = None):
 
@@ -2804,6 +2807,25 @@ class Installer(object):
             with open(self.project_env_script, "w") as f:
                 f.write(self.process_template(self.project_env_template))
 
+        def _hg(self, *args, **kwargs):
+
+            # Mercurial has issues running under seteuid; fork to use setuid
+            # instead
+            if self.dedicated_user:
+                euid = os.geteuid()
+                os.seteuid(self._original_uid)
+                pid = os.fork()
+                if pid:
+                    os.waitpid(pid, 0)
+                    os.seteuid(euid)
+                else:
+                    self._is_child_process = True
+                    os.setuid(euid)
+                    self.installer._exec("hg", *args, **kwargs)
+                    sys.exit(0)
+            else:
+                self.installer._exec("hg", *args, **kwargs)
+
         def install_libs(self):
 
             # TODO: Clone and setup PyStemmer with support for catalan
@@ -2814,11 +2836,21 @@ class Installer(object):
             if not os.path.exists(
                 os.path.join(self.cocktail_outer_dir, ".hg")
             ):
-                self.installer._exec(
-                    "hg", "clone",
+                self._hg(
+                    "clone",
                     self.cocktail_repository,
                     self.cocktail_outer_dir,
                     "-u", self.cocktail_version
+                )
+            else:
+                self._hg(
+                    "pull",
+                    cwd=self.cocktail_outer_dir
+                )
+                self._hg(
+                    "update",
+                    "--rev", self.cocktail_version,
+                    cwd=self.cocktail_outer_dir
                 )
 
             self.setup_python_package(self.cocktail_outer_dir)
@@ -2829,11 +2861,21 @@ class Installer(object):
             if not os.path.exists(
                 os.path.join(self.woost_outer_dir, ".hg")
             ):
-                self.installer._exec(
-                    "hg", "clone",
+                self._hg(
+                    "clone",
                     self.woost_repository,
                     self.woost_outer_dir,
                     "-u", self.woost_version
+                )
+            else:
+                self._hg(
+                    "pull",
+                    cwd = self.woost_outer_dir
+                )
+                self._hg(
+                    "update",
+                    "--rev", self.woost_version,
+                    cwd = self.woost_outer_dir
                 )
 
             self.setup_python_package(self.woost_outer_dir)
@@ -2857,45 +2899,57 @@ class Installer(object):
                 ext_dir = os.path.join(self.root_dir, "woost-" + ext_name)
 
                 if not os.path.exists(ext_dir):
-                    self.installer._exec(
-                        "hg", "clone",
+                    self._hg(
+                        "clone",
                         ext_repository,
                         ext_dir
+                    )
+                else:
+                    self._hg(
+                        "pull", "-u",
+                        cwd = ext_dir
                     )
 
                 self.setup_python_package(ext_dir)
 
         def setup_python_package(self, package_root):
-            subprocess.Popen(
-                "cd %s "
-                "&& source %s "
-                "&& python setup.py develop "
-                "--find-links=%s"
-                % (
-                    package_root,
-                    os.path.join(self.virtual_env_dir, "bin", "activate"),
-                    self.python_packages_url
-                ),
-                shell = True,
-                executable = "/bin/bash"
-            ).wait()
+            self.installer._exec(
+                self.python_bin,
+                os.path.join(package_root, "setup.py"),
+                "develop",
+                "--find-links=" + self.python_packages_url,
+                cwd = package_root
+            )
 
         def create_project_skeleton(self):
 
             self.installer.heading("Creating the project skeleton")
 
             # Copy source code from an existing installation using mercurial
-            if (
-                self.source_repository
-                and not os.path.exists(
+            if self.source_repository:
+                if not os.path.exists(
                     os.path.join(self.project_outer_dir, ".hg")
-                )
-            ):
-                self.installer._exec(
-                    "hg", "clone",
-                    self.source_repository,
-                    self.project_outer_dir
-                )
+                ):
+                    clone_cmd = [
+                        "clone",
+                        self.source_repository,
+                        self.project_outer_dir
+                    ]
+                    if self.revision:
+                        clone_cmd += ["--rev", self.revision]
+                    self._hg(*clone_cmd)
+                else:
+                    self._hg(
+                        "pull",
+                        cwd = self.project_outer_dir
+                    )
+                    update_cmd = ["update"]
+                    if self.revision:
+                        update_cmd += ["--rev", self.revision]
+                    self._hg(
+                        *update_cmd,
+                        cwd = self.project_outer_dir
+                    )
 
             # Create the package structure
             if not os.path.exists(self.project_outer_dir):
@@ -2983,8 +3037,8 @@ class Installer(object):
 
             # Discard generated files that are managed with version control
             if self.source_repository:
-                self.installer._exec(
-                    "hg", "revert", "--all", "--no-backup",
+                self._hg(
+                    "revert", "--all", "--no-backup",
                     "-R", self.project_outer_dir
                 )
 
@@ -3041,6 +3095,7 @@ class Installer(object):
             self.installer._exec(
                 "rsync",
                 "-P",
+                "--update",
                 source_file,
                 dest_file
             )
@@ -3365,7 +3420,7 @@ class Installer(object):
             )
 
             # Initialize the repository
-            self.installer._exec("hg", "init", self.project_outer_dir)
+            self._hg("init", self.project_outer_dir)
 
             # Create an .hgignore file
             hg_ignore_path = os.path.join(self.project_outer_dir, ".hgignore")
@@ -3373,20 +3428,20 @@ class Installer(object):
                 f.write(self.get_mercurial_ignore_file_contents())
 
             # Add files and make a first commit
-            self.installer._exec(
-                "hg", "addremove",
+            self._hg(
+                "addremove",
                 cwd = self.project_outer_dir
             )
 
             commit_command = [
-                "hg", "commit", "-m",
+                "commit", "-m",
                 self.process_template(self.first_commit_message),
             ]
 
             if self.mercurial_user:
                 commit_command.extend(["--user", self.mercurial_user])
 
-            self.installer._exec(*commit_command, cwd = self.project_outer_dir)
+            self._hg(*commit_command, cwd = self.project_outer_dir)
 
         def get_mercurial_ignore_file_contents(self):
             return u"\n".join(
@@ -3677,6 +3732,16 @@ class Installer(object):
 
             self.add_argument(
                 parser.copy_group,
+                "--revision",
+                help = """
+                    Indicates the revision (or a branch, bookmark or tag) of
+                    the project to clone.
+                    """,
+                default = self.revision
+            )
+
+            self.add_argument(
+                parser.copy_group,
                 "--skip-database",
                 help = """Don't copy the database.""",
                 action = "store_true"
@@ -3858,9 +3923,9 @@ class BundleInstaller(Installer):
     class UnbundleCommand(Installer.CopyCommand):
         name = "unbundle"
 
-        preliminary_tasks = [
-            "extract_bundle_to_temp_dir"
-        ] + list(Installer.CopyCommand.preliminary_tasks)
+        preliminary_tasks = list(Installer.CopyCommand.preliminary_tasks)
+        preliminary_tasks.append("extract_bundle_to_temp_dir")
+        source_installation = "/tmp/woostproject-bundle"
 
         cleanup_tasks = list(Installer.CopyCommand.cleanup_tasks) + [
             "delete_bundle_temp_dir"
@@ -3876,11 +3941,12 @@ class BundleInstaller(Installer):
 
         def extract_bundle_to_temp_dir(self):
             self.installer.heading("Extracting bundle data")
-            self.source_installation = mkdtemp()
-            os.chmod(self.source_installation, 0755)
+            os.makedirs(self.source_installation, exist_ok=True)
+            os.chmod(self.source_installation, 0o755)
             self.extract_bundle_data(self.source_installation)
 
         def delete_bundle_temp_dir(self):
+            self.installer.heading("Deleting temporary bundle data")
             shutil.rmtree(self.source_installation)
 
         def extract_bundle_data(self, dest):
