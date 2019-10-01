@@ -805,6 +805,7 @@ class Installer(object):
         default_woost_extensions_repository = \
             "https://bitbucket.org/whads/woost.extensions.%s"
         hostname = None
+        revision = None
         deployment_scheme = None
         modify_hosts_file = False
         port = None
